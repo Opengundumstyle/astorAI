@@ -1,0 +1,30 @@
+[project]
+name = "astor"
+version = "0.1.0"
+description = "AstorScientific - M1: catalog ingestion + equivalence matcher (distributor-model life-science procurement)"
+requires-python = ">=3.11"
+dependencies = [
+    "SQLAlchemy>=2.0",
+    "alembic>=1.13",
+    "psycopg[binary]>=3.1",
+    "pgvector>=0.2.5",
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",
+    "python-dotenv>=1.0",
+    "numpy>=1.26",
+    "openpyxl>=3.1",
+    "anthropic>=0.39",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "mypy>=1.9", "ruff>=0.4"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

@@ -1,0 +1,4 @@
+supplier_sku,name,category,brand,mpn,pack_size,cost,currency,stock,lead_time_days,specs
+VZ-EX-001,2x Taq Master Mix,molecular biology,Vazyme,P112,5 mL,120,CNY,200,7,"{""volume"":""5 mL"",""type"":""master mix""}"
+YS-RT-010,HiScript Reverse Transcriptase,molecular biology,Yeasen,11201,10000 U,340,CNY,80,10,"{""units"":""10000 U""}"
+GS-PT-205,Recombinant Protein A,consumables,GenScript,Z02201,5 mg,560,CNY,50,14,"{""mass"":""5 mg""}"
