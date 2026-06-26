@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "mypy>=1.9", "ruff>=0.4"]
+voyage = ["voyageai>=0.2"]
+openai = ["openai>=1.30"]
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -1,0 +1,9 @@
+a_key,b_key,kind
+cn1,cn1b,exact
+cn1,us1,substitute
+cn2,us2,substitute
+cn3,us3,substitute
+cn1,cn2,none
+cn1,us2,none
+cn3,us1,none
+us1,us2,none

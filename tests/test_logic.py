@@ -1,8 +1,7 @@
 from astor.catalog.normalization import normalize, canonical_text
 from astor.catalog.schemas import ExtractedProduct, NormalizedProduct
-from astor.catalog.matcher import _classify, _attribute_bonus
+from astor.catalog import scoring
 from astor.pricing.landed_cost import landed_cost
-from astor.db.models import Product
 
 
 def test_category_canonicalization():
@@ -20,15 +19,15 @@ def test_canonical_text_is_spec_aware():
 
 
 def test_classify_thresholds():
-    assert _classify(0.95) == "exact"
-    assert _classify(0.85) == "substitute"
-    assert _classify(0.5) is None
+    assert scoring.classify(0.95, 0.92, 0.80) == "exact"
+    assert scoring.classify(0.85, 0.92, 0.80) == "substitute"
+    assert scoring.classify(0.5, 0.92, 0.80) is None
 
 
 def test_attribute_bonus_same_brand_mpn_is_exact_signal():
-    a = Product(category="molecular_biology", name="Taq", brand="Vazyme", mpn="P112", specs={})
-    b = Product(category="molecular_biology", name="Taq", brand="Vazyme", mpn="P112", specs={})
-    assert _attribute_bonus(a, b) >= 0.5
+    a = scoring.ProductView(category="molecular_biology", name="Taq", brand="Vazyme", mpn="P112")
+    b = scoring.ProductView(category="molecular_biology", name="Taq", brand="Vazyme", mpn="P112")
+    assert scoring.attribute_bonus(a, b) >= 0.5
 
 
 def test_landed_cost_breakdown():

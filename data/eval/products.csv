@@ -1,0 +1,8 @@
+key,category,name,brand,mpn,specs,_unused
+cn1,molecular_biology,2x Taq Master Mix,Vazyme,P112,"{""type"":""master mix"",""enzyme"":""Taq""}",
+us1,molecular_biology,2X Taq PCR Master Mix,NEB,M0270,"{""type"":""master mix"",""enzyme"":""Taq""}",
+cn2,molecular_biology,HiScript Reverse Transcriptase,Yeasen,11201,"{""enzyme"":""reverse transcriptase""}",
+us2,molecular_biology,ProtoScript Reverse Transcriptase,NEB,M0368,"{""enzyme"":""reverse transcriptase""}",
+cn3,consumables,Recombinant Protein A,GenScript,Z02201,"{""ligand"":""protein A""}",
+us3,consumables,Pierce Protein A,Thermo,21181,"{""ligand"":""protein A""}",
+cn1b,molecular_biology,2x Taq Master Mix,Vazyme,P112,"{""type"":""master mix"",""enzyme"":""Taq""}",
