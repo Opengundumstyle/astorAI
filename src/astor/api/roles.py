@@ -25,19 +25,20 @@ def _drop(d: dict, keys: tuple[str, ...]) -> dict:
 
 def gate_product(d: dict, role: str) -> dict:
     if normalize_role(role) == OPS:
-        return d
+        return dict(d)
     return _drop(d, _PRODUCT_CONFIDENTIAL)
 
 
 def gate_detail(d: dict, role: str) -> dict:
     if normalize_role(role) == OPS:
-        return d
+        return dict(d)
     out = _drop(d, _DETAIL_CONFIDENTIAL)
-    out["equivalents"] = [_drop(e, _EQUIVALENT_CONFIDENTIAL) for e in d.get("equivalents", [])]
+    if "equivalents" in d:
+        out["equivalents"] = [_drop(e, _EQUIVALENT_CONFIDENTIAL) for e in d["equivalents"]]
     return out
 
 
 def gate_landed(d: dict, role: str) -> dict:
     if normalize_role(role) == OPS:
-        return d
+        return dict(d)
     return _drop(d, _LANDED_CONFIDENTIAL)

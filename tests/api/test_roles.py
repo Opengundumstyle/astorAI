@@ -58,3 +58,34 @@ def test_gate_landed_buyer_keeps_only_price():
     assert out == {"currency": "USD", "qty": 2, "unit_price": 27.0, "line_total": 54.0}
     for forbidden in ("ex_works", "tariff", "duty_rate", "freight", "margin"):
         assert forbidden not in out
+
+
+def test_gate_product_ops_returns_copy_not_alias():
+    d = {"astor_sku": "ASR-1", "name": "x", "brand": "Vazyme"}
+    out = gate_product(d, OPS)
+    assert out == d
+    assert out is not d
+
+
+def test_gate_detail_ops_returns_copy_not_alias():
+    d = {"astor_sku": "ASR-1", "name": "x", "brand": "Vazyme", "equivalents": []}
+    out = gate_detail(d, OPS)
+    assert out == d
+    assert out is not d
+
+
+def test_gate_landed_ops_returns_copy_not_alias():
+    d = {"currency": "USD", "qty": 2, "ex_works": 16.8, "unit_price": 27.0}
+    out = gate_landed(d, OPS)
+    assert out == d
+    assert out is not d
+
+
+def test_gate_detail_buyer_without_equivalents_omits_key():
+    d = {"astor_sku": "ASR-1", "name": "x", "category": "molecular_biology"}
+    out = gate_detail(d, BUYER)
+    assert "equivalents" not in out
+
+
+def test_normalize_role_uppercase_buyer():
+    assert normalize_role("BUYER") == BUYER
