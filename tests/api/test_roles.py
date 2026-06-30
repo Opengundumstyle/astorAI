@@ -89,3 +89,39 @@ def test_gate_detail_buyer_without_equivalents_omits_key():
 
 def test_normalize_role_uppercase_buyer():
     assert normalize_role("BUYER") == BUYER
+
+
+# --- Fail-closed regression tests: unknown future keys must NOT reach buyers ---
+
+def test_gate_product_buyer_drops_unknown_future_key():
+    d = {"id": "1", "astor_sku": "ASR-1", "name": "x", "category": "mb",
+         "offer_count": 3, "best_landed": 9.9, "secret_origin": "CN"}
+    out = gate_product(d, BUYER)
+    assert "secret_origin" not in out
+
+
+def test_gate_product_ops_passes_unknown_future_key():
+    d = {"astor_sku": "ASR-1", "name": "x", "secret_origin": "CN"}
+    out = gate_product(d, OPS)
+    assert "secret_origin" in out
+
+
+def test_gate_detail_buyer_drops_unknown_future_key():
+    d = {
+        "id": "1", "astor_sku": "ASR-1", "name": "x", "category": "mb",
+        "specs": {}, "supplier_internal": "X",
+        "equivalents": [
+            {"id": "2", "astor_sku": "ASR-2", "name": "y",
+             "confidence": 0.9, "kind": "substitute", "origin": "US"}
+        ],
+    }
+    out = gate_detail(d, BUYER)
+    assert "supplier_internal" not in out
+    assert "origin" not in out["equivalents"][0]
+
+
+def test_gate_landed_buyer_drops_unknown_future_key():
+    d = {"currency": "USD", "qty": 2, "unit_price": 27.0,
+         "line_total": 54.0, "fx_rate": 0.14}
+    out = gate_landed(d, BUYER)
+    assert "fx_rate" not in out
