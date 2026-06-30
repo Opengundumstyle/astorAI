@@ -6,6 +6,8 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from astor.api.routers import dashboard
+
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AstorScientific API", version="0.1.0")
@@ -20,6 +22,8 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     def health() -> dict:
         return {"status": "ok"}
+
+    app.include_router(dashboard.router)
 
     return app
 
