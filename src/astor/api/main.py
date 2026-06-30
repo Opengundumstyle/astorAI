@@ -27,6 +27,15 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(pricing.router)
 
+    if os.getenv("SEED_DEMO") == "1":
+        from astor.api.seed import seed_demo
+        from astor.db.base import session_scope
+
+        @app.on_event("startup")
+        def _seed() -> None:
+            with session_scope() as session:
+                seed_demo(session)
+
     return app
 
 
