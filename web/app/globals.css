@@ -1,0 +1,27 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0d1322;
+  --bg-elev: #0a0e1a;
+  --panel: rgba(255, 255, 255, 0.04);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #f1f5f9;
+  --muted: #7c8aa5;
+  --teal: #5eead4;
+  --blue: #3b82f6;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.gradient-accent {
+  background: linear-gradient(135deg, var(--teal), var(--blue));
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}

@@ -10,3 +10,6 @@ dist/
 build/
 *.sqlite3
 .DS_Store
+.superpowers/
+web/node_modules
+web/.next
