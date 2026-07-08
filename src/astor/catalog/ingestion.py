@@ -112,6 +112,17 @@ def ingest(
     session: Session, source: Path, supplier_name: str, region: str = "CN", tier: str = "public"
 ) -> IngestResult:
     raw = extract_step(source)
+    return ingest_extracted(session, raw, supplier_name, region, tier)
+
+
+def ingest_extracted(
+    session: Session, raw: list, supplier_name: str, region: str = "US", tier: str = "public"
+) -> IngestResult:
+    """Ingest already-extracted ExtractedProduct DTOs (API feeds, e.g. Shopify).
+
+    Same normalize -> upsert path as file ingestion; only the extract step
+    differs by source. Idempotent on the same natural keys, so re-pulls are safe.
+    """
     items = normalize_step(raw)
     supplier = _get_or_create_supplier(session, supplier_name, region, tier)
     result = upsert_step(session, supplier, items)
