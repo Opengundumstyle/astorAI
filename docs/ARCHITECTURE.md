@@ -63,6 +63,28 @@ product/consumable/reagent procurement with distributor fulfillment.
 
 ## 4. The four-plane architecture
 
+> **v1 SCOPE OVERRIDE (2026-07-17, Zhile) — accuracy layer deferred; protocols.io single-source; review-ranked.**
+> For the current build we intentionally narrow Plane 2. This does NOT change the locked
+> long-term design below — it is a temporary scoping, and it is reversible because the two
+> retrieval targets were always separate systems.
+> - **Scientific-grounding half is paused.** No PaperQA2-style academic citation / confidence
+>   layer in v1. Answers are not (yet) citation-backed. The three-trust-mechanism separation
+>   (§3) still holds conceptually; the *science → citations* mechanism is simply not shipped yet.
+> - **Single source: protocols.io.** The multi-source ingest (PMC / Addgene / bio-protocol, §9–10)
+>   is deferred to one adapter: protocols.io only. **Consequence:** the free-facts PMC fallback is
+>   gone, so the protocols.io licence/ToS question (§14 #1) is now **blocking, not optional** —
+>   and it matters whether "use protocols.io" means *link out to it* (low legal exposure) vs.
+>   *ingest its content into our index* (needs the licence).
+> - **Ranking = protocols.io review/popularity signal**, standing in for citation-count /
+>   journal-rank / retraction-status ranking. This is a *selection/routing* signal (which protocol
+>   to surface), NOT a correctness or completeness guarantee; popularity ≠ correctness, and it
+>   biases toward older, well-trafficked protocols.
+> - **The completeness checklist (§9, the moat) is NOT dropped.** It does not depend on the
+>   citation layer. Review-ranking picks *which* protocol; the checklist still governs whether a
+>   protocol's material list is *complete* (controls, buffers). Keep them distinct.
+> - Net effect: Plane 2 collapses to *one catalog retriever + a review-ranked protocols.io lookup*.
+>   Re-adding the scientific-grounding half later requires no rework (it was always separate).
+
 Four planes. Planes 1–3 are the **engine** (platform-agnostic). Plane 4 is a **swappable
 adapter** (Shopify today). Only Plane 2 is an agent; everything else is deterministic and
 unit-testable without an LLM.
