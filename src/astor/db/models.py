@@ -160,6 +160,74 @@ class Equivalence(Base, TimestampMixin):
 
 
 # --------------------------------------------------------------------------- #
+# Scientific grounding (Plane 2 RAG corpus)
+# --------------------------------------------------------------------------- #
+class Protocol(Base, TimestampMixin):
+    """An ingested experimental protocol — the Plane 2 retrieval corpus.
+
+    Two invariants beyond the catalog ones:
+
+      7. **Licence travels with the record** (INV PI-2). `license` and `servable`
+         are columns, not a filter applied at ingest time, so the redistribution
+         decision is re-checkable per row and enforceable at READ time. A corpus
+         built from mixed sources cannot be audited if the gate lives only in the
+         pipeline that wrote it.
+      8. **Non-servable rows carry attribution only.** When the licence does not
+         permit redistribution we still record that the protocol EXISTS (title,
+         DOI, link) so it can be cited or linked out, but `steps`/`materials`
+         stay empty. The gate is structural — there is no state in which
+         unservable content sits in this table waiting to leak into a response.
+    """
+
+    __tablename__ = "protocols"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    source: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    source_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    authors: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    doi: Mapped[str | None] = mapped_column(String(255))
+    version: Mapped[str | None] = mapped_column(String(64))
+
+    license: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Materialized licence-gate outcome: may this row's CONTENT be served?
+    servable: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
+
+    steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    materials: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    review: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Denormalized so "top N by review" is an index scan, not a JSONB sort.
+    rank_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim))
+
+    __table_args__ = (
+        # Idempotency axis 1: one row per (source, source-native id). Always present.
+        UniqueConstraint("source", "source_id", name="uq_protocol_source_id"),
+        # Idempotency axis 2: DOI is the cross-source identity (build notes: "dedupe
+        # on DOI"). PARTIAL, because DOI is nullable and Postgres treats each NULL as
+        # distinct — a plain unique constraint would silently permit duplicate
+        # DOI-less rows while looking like it enforced something.
+        Index(
+            "uq_protocol_doi",
+            "doi",
+            unique=True,
+            postgresql_where=text("doi IS NOT NULL"),
+        ),
+        Index("ix_protocol_rank", "rank_score"),
+        Index(
+            "ix_protocol_embedding_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Transaction spine (present now so the schema is whole; filled in M4)
 # --------------------------------------------------------------------------- #
 class Customer(Base, TimestampMixin):

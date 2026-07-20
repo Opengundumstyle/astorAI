@@ -29,6 +29,9 @@ class Settings(BaseSettings):
     shopify_supplier_region: str = "US"
     shopify_supplier_tier: str = "authorized"     # public | authorized | deep
 
+    # -- protocols.io ingest (v1 protocol source; secrets stay in .env) ------ #
+    protocols_io_token: str | None = None  # required for live fetch (gated, see sources.py)
+
     equiv_exact_threshold: float = 0.92
     equiv_substitute_threshold: float = 0.80
     equiv_candidates: int = 20

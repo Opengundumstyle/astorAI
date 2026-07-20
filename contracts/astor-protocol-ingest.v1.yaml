@@ -1,0 +1,316 @@
+# =============================================================================
+# Astor Protocol Ingest Contract — v1
+# =============================================================================
+# Source-neutral contract for the seam between any PROTOCOL SOURCE (protocols.io,
+# Europe PMC, manual curation) and the Astor INGEST PIPELINE that feeds the Plane 2
+# grounding corpus.
+#
+# This file is the single source of truth for:
+#   - the neutral RawProtocol shape every source adapter must produce,
+#   - the licence taxonomy and which licences may be SERVED vs. link-out only,
+#   - the pipeline stages and what each is allowed to assume,
+#   - the identity/dedupe rules that make re-ingestion idempotent,
+#   - the invariants that keep the corpus legally auditable per row.
+#
+# Payloads are JSON Schema (draft 2020-12) fragments so an ingest-time validator
+# can reject non-conforming — and source-shaped — records (PI-1).
+#
+# Companion docs: docs/ARCHITECTURE.md §9 (ingest pipeline), §10 (data/curation),
+#                 docs/protocol-sourcing-handoff.md (licensing decision brief).
+# Companion contracts: astor-engine-contract.v1.yaml, astor-protocol-bom.v1.yaml.
+# Implementation: src/astor/protocols/
+# =============================================================================
+
+schema_version: "1.0.0"
+title: Astor Protocol Ingest Contract
+json_schema_dialect: "https://json-schema.org/draft/2020-12/schema"
+
+# -----------------------------------------------------------------------------
+# The boundary: sources cross into the pipeline at EXACTLY one point.
+# A second crossing means a source schema is leaking (PI-1).
+# -----------------------------------------------------------------------------
+boundary:
+  source_to_pipeline: RawProtocol   # adapter.to_raw(payload) -> RawProtocol
+  pipeline_to_corpus: ProtocolRow   # persisted shape; licence materialized per row
+
+# -----------------------------------------------------------------------------
+# Invariants — enforced by the ingest validator and the persistence layer,
+# not by convention.
+# -----------------------------------------------------------------------------
+invariants:
+  PI-1:
+    rule: >
+      Zero source-specific types pass the adapter boundary. Downstream stages see
+      RawProtocol only and MUST NOT branch on `source`. Source-native payloads may
+      ride along in `raw` as an opaque escape hatch, and nothing may read from it
+      outside the adapter that wrote it.
+    enforced_by: ingest_validator
+  PI-2:
+    rule: >
+      The licence travels with every derived record. `license` is a column on the
+      persisted row, never a filter applied only at ingest time, so the
+      redistribution decision is re-checkable per row at READ time. A corpus built
+      from mixed sources is not auditable if the gate lives only in the pipeline
+      that wrote it.
+    enforced_by: persistence
+  PI-3:
+    rule: >
+      Fail closed. An unrecognised, absent or ambiguous licence maps to `unknown`
+      and is treated as most-restrictive until a human classifies it. No default
+      may resolve toward permitting service.
+    enforced_by: both
+  PI-4:
+    rule: >
+      Ingestion is idempotent. Identity is DOI when present, else
+      (source, source_id). Re-running a batch produces zero net change. Duplicates
+      WITHIN a batch collapse before write, keeping the highest-ranked record.
+    enforced_by: persistence
+  PI-5:
+    rule: >
+      Attribution is always retained; CONTENT is conditional. Every row keeps
+      title, authors, DOI and source_uri so the protocol stays citable and
+      link-outable regardless of licence. `steps` and `materials` are populated
+      only when the licence is redistributable.
+    enforced_by: persistence
+  PI-6:
+    rule: >
+      ACCESS and LICENCE are independent gates and both must pass. The content
+      licence (granted by the author) governs what may be done with the work; the
+      source's Terms of Service (a contract with the platform) governs the act of
+      retrieving it. A contract can forbid what a licence permits, so a permissive
+      licence NEVER by itself authorises ingestion. Sources marked
+      `access: gated` require documented clearance before any networked fetch, and
+      the gate defaults closed in code.
+    enforced_by: code_review
+
+# -----------------------------------------------------------------------------
+# Source register — access posture per source. `access` is the PI-6 gate and is
+# about the CONTRACT (ToS), independent of any per-record licence.
+#
+#   permitted — the operator explicitly allows systematic retrieval/text mining.
+#   gated     — retrieval is contractually restricted; fetch fails closed in code
+#               until clearance is documented here.
+#   manual    — no automated retrieval; human-curated entries only.
+# -----------------------------------------------------------------------------
+sources:
+  europepmc:
+    access: permitted
+    basis: >
+      Europe PMC Open Access subset is explicitly provided for text mining via
+      REST and bulk FTP. No contract restricts systematic download.
+    ranking_signal: citations       # citedByCount — the real signal §4 proxied for
+    yields_steps: false             # articles, not step-structured protocols
+    note: >
+      Supplies attribution, licence and citation count. Turning an OA methods
+      section into steps/materials is the LLM extraction stage, not this adapter.
+      Subsumes the CC-BY Bio-protocol articles.
+  protocols.io:
+    access: gated
+    basis: >
+      ToS 4.A(vi) prohibits storing site data "to make or populate a database of
+      any kind whatsoever"; 4.A(xi) prohibits systematic/automated downloading to
+      index content; 4.A(i) makes commercial use subject to separate terms and a
+      fee. Content is CC-BY but the CONTRACT forbids the ingestion (PI-6).
+    clearance: none                 # set to a commercial licence ref to ungate
+    ranking_signal: peer_reviewed + engagement
+    yields_steps: true
+    exposes_license: false          # VERIFIED 2026-07-19 -- see licence_gap below
+    endpoint_versions:              # each documented at its own version
+      get_protocol: /api/v4/protocols/{id}
+      list_search:  /api/v3/protocols
+    licence_gap: >
+      The API exposes NO licence field: apidoc.protocols.io has zero mentions of
+      licence/copyright/Creative Commons, and a live payload returned null. Per
+      PI-3 every protocols.io record therefore resolves to `unknown` and is
+      link-out only. Consequence: even WITH a commercial agreement, per-record
+      licence gating cannot be automated from this source -- licence terms would
+      have to arrive out-of-band (contract schedule, bulk manifest) or be
+      curated by hand. Raise this before valuing any licence.
+    note: >
+      Scope of the gate is the RETRIEVAL, not the code. Offline mapping of saved
+      payloads (to_raw) is unrestricted and is how the adapter is tested. Internal
+      or non-public use does NOT cure the restriction: the prohibited act is the
+      pull, not the publication. Accordingly the adapter deliberately exposes
+      fetch_one but NO search(): sweeping is the restricted act (4.A.xi).
+  manual:
+    access: manual
+    basis: Human-curated entries; licence recorded per entry at curation time.
+    ranking_signal: none
+    yields_steps: true
+
+# -----------------------------------------------------------------------------
+# Licence taxonomy. `serve_content` is the single gate the pipeline keys on.
+# NC is excluded because commercial serving IS the use. SA is excluded because
+# share-alike can propagate onto our derived index — a counsel decision, not a
+# default. Both remain link-out eligible.
+# -----------------------------------------------------------------------------
+licenses:
+  CC0:                 { serve_content: true,  attribution_required: false }
+  CC-BY:               { serve_content: true,  attribution_required: true  }
+  CC-BY-SA:            { serve_content: false, attribution_required: true, reason: share_alike_propagation }
+  CC-BY-NC:            { serve_content: false, attribution_required: true, reason: non_commercial }
+  CC-BY-NC-SA:         { serve_content: false, attribution_required: true, reason: non_commercial }
+  CC-BY-NC-ND:         { serve_content: false, attribution_required: true, reason: non_commercial_no_derivatives }
+  all-rights-reserved: { serve_content: false, attribution_required: true, reason: no_grant }
+  unknown:             { serve_content: false, attribution_required: true, reason: fail_closed }
+
+# -----------------------------------------------------------------------------
+# Pipeline stages. Each is pure and independently testable; v1 runs them in
+# sequence in-process, and the boundaries are drawn so a worker fleet can drive
+# them unchanged at volume.
+# -----------------------------------------------------------------------------
+pipeline:
+  - stage: fetch
+    input: query | identifier
+    output: source payload (opaque)
+    gate: PI-6 (access)
+    note: The only networked stage. Batched and paged, never one-shot.
+  - stage: map
+    input: source payload
+    output: RawProtocol
+    gate: PI-1 (no source types past here)
+    note: Pure and offline. This is where field names are pinned and tested.
+  - stage: license_gate
+    input: RawProtocol[]
+    output: { servable: RawProtocol[], link_out_only: RawProtocol[] }
+    gate: PI-3 (fail closed)
+    note: Returns BOTH lists. Dropping silently would hide the gate's own effect.
+  - stage: rank
+    input: RawProtocol[]
+    output: RawProtocol[]           # descending rank_score, stable on ties
+    note: >
+      Selection policy, not a correctness claim. rank_score is comparable only
+      WITHIN a source; cross-source normalisation is deferred.
+  - stage: upsert
+    input: RawProtocol[]
+    output: ProtocolRow[]
+    gate: PI-2, PI-4, PI-5
+    note: Dedupes within batch, then resolves identity against stored rows.
+
+# -----------------------------------------------------------------------------
+# Reusable schema definitions.
+# -----------------------------------------------------------------------------
+$defs:
+  License:
+    type: string
+    enum: [CC0, CC-BY, CC-BY-SA, CC-BY-NC, CC-BY-NC-SA, CC-BY-NC-ND, all-rights-reserved, unknown]
+    default: unknown
+
+  ReviewSignal:
+    description: >
+      Whatever engagement/quality signal the source exposes. Adapters fill what
+      exists; absent fields stay null and rank_score degrades gracefully.
+    type: object
+    additionalProperties: false
+    properties:
+      citations:     { type: [integer, "null"], minimum: 0 }
+      rating:        { type: [number, "null"],  minimum: 0 }
+      ratings_count: { type: [integer, "null"], minimum: 0 }
+      views:         { type: [integer, "null"], minimum: 0 }
+      bookmarks:     { type: [integer, "null"], minimum: 0 }
+      forks:         { type: [integer, "null"], minimum: 0 }
+      comments:      { type: [integer, "null"], minimum: 0 }
+
+  RawMaterial:
+    description: A materials-list line exactly as the source states it — FACTS only.
+    type: object
+    additionalProperties: false
+    required: [name]
+    properties:
+      name:       { type: string, minLength: 1 }
+      amount:     { type: [string, "null"] }    # free text as stated ("50 mL", "2x")
+      vendor:     { type: [string, "null"] }
+      catalog_no: { type: [string, "null"] }
+
+  RawStep:
+    type: object
+    additionalProperties: false
+    required: [text]
+    properties:
+      number: { type: [integer, "null"], minimum: 1 }
+      text:   { type: string, minLength: 1 }
+
+  RawProtocol:
+    description: >
+      The source-neutral protocol. The ONLY shape that crosses the adapter
+      boundary (PI-1). Carries attribution and licence so every downstream record
+      can enforce redistribution per row (PI-2).
+    type: object
+    additionalProperties: false
+    required: [source, source_id, source_uri, title, license]
+    properties:
+      source:     { type: string, description: "Register key, e.g. europepmc" }
+      source_id:  { type: string, description: "Source-native id. NOT an engine id." }
+      source_uri: { type: string, description: "Canonical link back (attribution / link-out)" }
+      title:      { type: string, minLength: 1 }
+      authors:    { type: array, items: { type: string }, default: [] }
+      doi:        { type: [string, "null"] }
+      version:    { type: [string, "null"] }
+      license:    { $ref: "#/$defs/License" }
+      steps:      { type: array, items: { $ref: "#/$defs/RawStep" },     default: [] }
+      materials:  { type: array, items: { $ref: "#/$defs/RawMaterial" }, default: [] }
+      review:     { $ref: "#/$defs/ReviewSignal" }
+      fetched_at: { type: [string, "null"], format: date-time }
+      raw:
+        type: object
+        description: >
+          Source-specific escape hatch. Opaque to every stage after `map`;
+          reading it downstream violates PI-1.
+
+  ProtocolRow:
+    description: >
+      The persisted shape. Adds the materialized gate outcome (`servable`), the
+      denormalized `rank_score`, and the retrieval embedding.
+    type: object
+    required: [source, source_id, source_uri, title, license, servable]
+    properties:
+      source:      { type: string }
+      source_id:   { type: string }
+      source_uri:  { type: string }
+      title:       { type: string }
+      authors:     { type: array, items: { type: string } }
+      doi:         { type: [string, "null"] }
+      version:     { type: [string, "null"] }
+      license:     { $ref: "#/$defs/License" }
+      servable:    { type: boolean, description: "Materialized licence gate (PI-2)" }
+      steps:       { type: array, items: { $ref: "#/$defs/RawStep" } }
+      materials:   { type: array, items: { $ref: "#/$defs/RawMaterial" } }
+      review:      { $ref: "#/$defs/ReviewSignal" }
+      rank_score:  { type: number }
+      fetched_at:  { type: [string, "null"], format: date-time }
+      embedding:   { type: [array, "null"], items: { type: number } }
+
+# -----------------------------------------------------------------------------
+# Identity & dedupe (PI-4).
+# -----------------------------------------------------------------------------
+identity:
+  primary: doi
+  fallback: [source, source_id]
+  within_batch:
+    key: doi
+    keep: highest_rank_score
+    rationale: >
+      DB-level dedupe only catches collisions against rows already stored. One
+      ranked pull can contain the same DOI twice — a protocol and its own newer
+      version, or one work indexed under two source ids — and those would race
+      each other into the unique index inside a single flush.
+  storage_note: >
+    The DOI unique index MUST be partial (WHERE doi IS NOT NULL). Postgres treats
+    each NULL as distinct, so a plain unique constraint would appear to enforce
+    identity while silently permitting unlimited duplicate DOI-less rows.
+
+# -----------------------------------------------------------------------------
+# Conformance — an ingest run is conforming iff all hold.
+# -----------------------------------------------------------------------------
+conformance:
+  - Every record crossing the boundary validates against $defs.RawProtocol (PI-1).
+  - No stage after `map` branches on `source` or reads `raw` (PI-1).
+  - Every persisted row carries a `license` value from $defs.License (PI-2).
+  - An unrecognised or absent licence string resolves to `unknown`, never to a
+    serve_content:true value (PI-3).
+  - Re-running an identical batch yields created=0 and no field changes (PI-4).
+  - No row has non-empty steps/materials while licenses[row.license].serve_content
+    is false (PI-5).
+  - No networked fetch runs against a source whose access is `gated` and whose
+    clearance is `none` (PI-6).
+  - Ranking never reorders across sources without an explicit normalisation step.

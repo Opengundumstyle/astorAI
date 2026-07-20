@@ -13,7 +13,10 @@ dependencies = [
     "python-dotenv>=1.0",
     "numpy>=1.26",
     "openpyxl>=3.1",
-    "anthropic>=0.39",
+    # >=0.112 for messages.parse() + output_config (protocols/extraction.py).
+    # The old >=0.39 floor predates both and would install a client that fails at
+    # runtime rather than at resolve time.
+    "anthropic>=0.112",
 ]
 
 [project.optional-dependencies]
