@@ -33,8 +33,23 @@ def license_gate(
 
 
 def rank_by_review(protocols: Iterable[RawProtocol]) -> list[RawProtocol]:
-    """Highest review first. Stable: ties keep input order."""
-    return sorted(protocols, key=lambda p: p.review.rank_score, reverse=True)
+    """Best first, on two keys in priority order:
+
+      1. `peer_reviewed` — journal-reviewed protocols sort above everything else.
+         This is a QUALITY judgement someone else already made and is worth more
+         than any engagement number we can compute. Kept as its own key rather
+         than folded into rank_score, because a boolean has no magnitude: mixing
+         it into the scalar would mean a popular unreviewed protocol could
+         outrank a reviewed one purely on view count.
+      2. `rank_score` — citations, else rating, else engagement.
+
+    Stable: ties keep input order.
+    """
+    return sorted(
+        protocols,
+        key=lambda p: (bool(p.review.peer_reviewed), p.review.rank_score),
+        reverse=True,
+    )
 
 
 def top_by_review(protocols: Iterable[RawProtocol], n: int) -> list[RawProtocol]:

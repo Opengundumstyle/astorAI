@@ -1,0 +1,541 @@
+# =============================================================================
+# Astor Neutral Engine Contract — v1
+# =============================================================================
+# Transport-agnostic contract for the seam between the Astor ENGINE (Planes 1-3)
+# and any COMMERCE ADAPTER (Plane 4; Shopify today, swappable).
+#
+# This file is the single source of truth for:
+#   - the message envelope every sync/async payload rides in,
+#   - the four engine-facing SYNC endpoints,
+#   - the async EVENTS that cross the thin waist in each direction,
+#   - the state machines for Order and Exception,
+#   - the six invariants that keep the boundary agnostic.
+#
+# Payloads are expressed as JSON Schema (draft 2020-12) fragments so a validator
+# at the seam can reject non-conforming — and Shopify-shaped — messages (INV-1).
+#
+# Companion docs: docs/ARCHITECTURE.md §5 (locked boundary), §7 (this contract).
+# Companion contracts: astor-protocol-bom.v1.yaml, astor-protocol-ingest.v1.yaml.
+# =============================================================================
+
+schema_version: "1.0.0"
+title: Astor Neutral Engine Contract
+json_schema_dialect: "https://json-schema.org/draft/2020-12/schema"
+
+# -----------------------------------------------------------------------------
+# The thin waist: engine <-> adapter cross at EXACTLY these two points.
+# A third crossing means the boundary is leaking (docs/ARCHITECTURE.md §4).
+# -----------------------------------------------------------------------------
+thin_waist:
+  engine_to_adapter: draft.proposed   # buyer confirmed -> materialize commerce draft
+  adapter_to_engine: order.paid       # money captured -> engine cuts upstream PO
+
+# -----------------------------------------------------------------------------
+# Invariants — enforced by the seam validator, not by convention.
+# -----------------------------------------------------------------------------
+invariants:
+  INV-1:
+    rule: >
+      Reject any message whose JSON contains a Shopify GID ("gid://shopify/")
+      or Shopify-shaped keys (see x_seam_reject). The boundary is enforced here.
+    enforced_by: seam_validator
+  INV-2:
+    rule: >
+      The engine mints all IDs. The adapter resolves Shopify GIDs to engine IDs
+      BEFORE emitting any adapter->engine event. No raw GID ever reaches the engine.
+    enforced_by: adapter
+  INV-3:
+    rule: >
+      Delivery is at-least-once. Every consumer is idempotent on idempotency_key.
+      Re-delivery of a processed message is a no-op.
+    enforced_by: both
+  INV-4:
+    rule: >
+      Delivery is unordered. Consumers key on (entity id + state machine) and
+      drop stale transitions by comparing occurred_at.
+    enforced_by: both
+  INV-5:
+    rule: >
+      Money is always an integer count of minor units plus an ISO-4217 code.
+      Floats are rejected. See $defs.Money.
+    enforced_by: seam_validator
+  INV-6:
+    rule: >
+      The engine imports zero adapter SDKs. All Shopify coupling lives in the
+      adapter. This contract names no vendor type.
+    enforced_by: code_review
+
+# -----------------------------------------------------------------------------
+# ID conventions — prefixed ULIDs (docs/ARCHITECTURE.md §7).
+#
+# NOTE / open divergence #3: src/astor/db/models.py currently uses raw UUID PKs.
+# This contract is the target. Reconcile the schema to prefixed ULIDs (or add a
+# ULID surface-id column distinct from the storage PK) before wiring the seam,
+# since INV-2 (adapter GID -> engine ID mapping) assumes these shapes.
+# ULID body = 26 chars, Crockford base32 (excludes I, L, O, U).
+# -----------------------------------------------------------------------------
+id_conventions:
+  product:      prod_   # a catalog product (buyer-facing SKU)
+  offer:        off_    # a supplier offer (what Astor actually buys upstream)
+  company:      co_     # a B2B company account
+  buyer:        buy_    # an individual buyer within a company
+  order:        ord_    # the engine order (== the cart; minted at confirm)
+  exception:    exc_    # a raised exception on an order/line
+  quote:        qte_    # a working-order mutation cursor (optional)
+  event:        evt_    # an event envelope id
+  correlation:  corr_   # a correlation id threading a session
+
+# -----------------------------------------------------------------------------
+# Reusable schema definitions.
+# -----------------------------------------------------------------------------
+$defs:
+  # ---- ID types ----------------------------------------------------------
+  UlidBody: &ulid "[0-9A-HJKMNP-TV-Z]{26}"
+  ProdId: { type: string, pattern: "^prod_[0-9A-HJKMNP-TV-Z]{26}$" }
+  OffId:  { type: string, pattern: "^off_[0-9A-HJKMNP-TV-Z]{26}$" }
+  CoId:   { type: string, pattern: "^co_[0-9A-HJKMNP-TV-Z]{26}$" }
+  BuyId:  { type: string, pattern: "^buy_[0-9A-HJKMNP-TV-Z]{26}$" }
+  OrdId:  { type: string, pattern: "^ord_[0-9A-HJKMNP-TV-Z]{26}$" }
+  ExcId:  { type: string, pattern: "^exc_[0-9A-HJKMNP-TV-Z]{26}$" }
+  EvtId:  { type: string, pattern: "^evt_[0-9A-HJKMNP-TV-Z]{26}$" }
+  CorrId: { type: string, pattern: "^corr_[0-9A-HJKMNP-TV-Z]{26}$" }
+
+  # ---- Money (INV-5): integer minor units + ISO-4217, never a float -------
+  Money:
+    type: object
+    additionalProperties: false
+    required: [amount_minor, currency]
+    properties:
+      amount_minor: { type: integer, description: "e.g. 12345 == 123.45" }
+      currency: { type: string, pattern: "^[A-Z]{3}$" }
+
+  # ---- Envelope: every sync body and every event rides in this -----------
+  Envelope:
+    type: object
+    additionalProperties: false
+    required:
+      - schema_version
+      - event_type
+      - event_id
+      - occurred_at
+      - correlation_id
+      - source
+      - idempotency_key
+      - payload
+    properties:
+      schema_version: { type: string, const: "1.0.0" }
+      event_type: { type: string, description: "sync route or event name" }
+      event_id: { $ref: "#/$defs/EvtId" }
+      occurred_at: { type: string, format: date-time }
+      correlation_id: { $ref: "#/$defs/CorrId" }
+      # INV-1: source is engine|adapter — literally never "shopify".
+      source: { type: string, enum: [engine, adapter] }
+      idempotency_key: { type: string, minLength: 1, maxLength: 128 }
+      payload: { type: object }
+
+  # ---- Landed cost breakdown (transparency + audit; commercial fact) ------
+  LandedCost:
+    type: object
+    additionalProperties: false
+    required: [unit_price, total]
+    properties:
+      unit_price: { $ref: "#/$defs/Money" }
+      total: { $ref: "#/$defs/Money" }
+      breakdown:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [label, amount]
+          properties:
+            label: { type: string }        # e.g. "freight", "duty", "handling"
+            amount: { $ref: "#/$defs/Money" }
+
+  # ---- Evidence: SCIENCE only (PB-4 / principle #3). Never price/stock. ---
+  Evidence:
+    type: object
+    additionalProperties: false
+    required: [claim, source]
+    properties:
+      claim: { type: string }
+      source:
+        type: object
+        additionalProperties: false
+        required: [kind, ref]
+        properties:
+          kind: { type: string, enum: [openalex, europepmc, pubmed, pubchem, rrid, addgene, hpa] }
+          ref: { type: string, description: "stable external id / DOI / accession" }
+          citation_count: { type: integer }
+          journal_rank: { type: number }
+          retracted: { type: boolean }
+
+  # ---- A working-order line (== a cart line) -----------------------------
+  OrderLine:
+    type: object
+    additionalProperties: false
+    required: [line_id, product_id, qty, landed_cost, lane]
+    properties:
+      line_id: { type: string, pattern: "^oln_[0-9A-HJKMNP-TV-Z]{26}$" }
+      product_id: { $ref: "#/$defs/ProdId" }
+      qty: { type: integer, minimum: 1 }
+      landed_cost: { $ref: "#/$defs/LandedCost" }
+      # Plane 3 routing decision, carried as data.
+      lane: { type: string, enum: [in_stock, rfq, external] }
+      # Fit rationale (equivalence + provenance). Astor's judgment, cited.
+      fit_rationale: { type: string }
+      # Science rationale — evidence array (PB-3: >=1 per line).
+      evidence:
+        type: array
+        items: { $ref: "#/$defs/Evidence" }
+      role: { type: string, description: "role_taxonomy slug, e.g. primary_antibody, loading_control" }
+
+  # ---- Completeness report: the moat (gap detection) ---------------------
+  CompletenessReport:
+    type: object
+    additionalProperties: false
+    required: [category, satisfied, gaps]
+    properties:
+      category: { type: string }
+      checklist_version: { type: string }
+      satisfied: { type: boolean }
+      gaps:
+        type: array
+        items:
+          type: object
+          additionalProperties: false
+          required: [role, severity]
+          properties:
+            role: { type: string }         # a required role not yet in the order
+            severity: { type: string, enum: [required, recommended] }
+            reason: { type: string }
+
+# -----------------------------------------------------------------------------
+# Seam validator: reject Shopify-shaped payloads anywhere in the JSON (INV-1).
+# Applied recursively to every string value and every object key.
+# -----------------------------------------------------------------------------
+x_seam_reject:
+  description: >
+    A message is rejected at the seam if ANY string value matches value_patterns
+    or ANY object key matches key_patterns. Enforced by the validator, in
+    addition to the per-field schemas below.
+  value_patterns:
+    - "^gid://shopify/"
+    - "gid://shopify/"
+  key_patterns:
+    - "^admin_graphql_api_id$"
+    - "^shopify_.*"
+    - "^myshopify_domain$"
+
+# =============================================================================
+# SYNC ENDPOINTS (engine-facing; request/response, carried via App Proxy)
+# Every request and response body is an Envelope; schemas below constrain the
+# `payload` object for each route.
+# =============================================================================
+sync_endpoints:
+
+  # ---- POST /v1/discover -------------------------------------------------
+  # Conversational discovery + equivalence + evidence-grounded ranking.
+  # Stateless: creates NO order. This is Plane 2 (the one agent).
+  discover:
+    method: POST
+    path: /v1/discover
+    request_payload:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query: { type: string }
+        buyer_id: { $ref: "#/$defs/BuyId" }
+        company_id: { $ref: "#/$defs/CoId" }
+        context:
+          type: object
+          description: "optional elicitation state / proto_id from the BoM layer"
+    response_payload:
+      type: object
+      additionalProperties: false
+      required: [candidates]
+      properties:
+        candidates:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [product_id, score, landed_cost]
+            properties:
+              product_id: { $ref: "#/$defs/ProdId" }
+              score: { type: number, minimum: 0, maximum: 1 }
+              landed_cost: { $ref: "#/$defs/LandedCost" }
+              fit_rationale: { type: string }
+              evidence: { type: array, items: { $ref: "#/$defs/Evidence" } }
+              lane: { type: string, enum: [in_stock, rfq, external] }
+        completeness: { $ref: "#/$defs/CompletenessReport" }
+
+  # ---- POST /v1/quote ----------------------------------------------------
+  # Create/mutate the engine-side working order (THE CART). Never touches Shopify.
+  # Idempotent per (order_id, idempotency_key). Order stays status=open.
+  quote:
+    method: POST
+    path: /v1/quote
+    request_payload:
+      type: object
+      additionalProperties: false
+      required: [op, idempotency_key]
+      properties:
+        # add_line creates the order on first call if order_id is absent.
+        op: { type: string, enum: [add_line, update_qty, remove_line, rename, share] }
+        order_id: { $ref: "#/$defs/OrdId" }
+        buyer_id: { $ref: "#/$defs/BuyId" }
+        company_id: { $ref: "#/$defs/CoId" }
+        product_id: { $ref: "#/$defs/ProdId" }
+        line_id: { type: string, pattern: "^oln_[0-9A-HJKMNP-TV-Z]{26}$" }
+        qty: { type: integer, minimum: 0 }   # 0 with update_qty == remove
+        name: { type: string, maxLength: 200 }   # §6: cart is named
+        idempotency_key: { type: string, minLength: 1, maxLength: 128 }
+    response_payload:
+      type: object
+      additionalProperties: false
+      required: [order]
+      properties:
+        order: { $ref: "#/order_object" }
+
+  # ---- POST /v1/confirm --------------------------------------------------
+  # Buyer confirms (THE HUMAN APPROVAL GATE, seam P3|P4). Engine freezes the
+  # order, mints ord_ (if not already), and emits draft.proposed (CROSSING 1).
+  # Branches on the buyer's payment setup (see result.disposition).
+  confirm:
+    method: POST
+    path: /v1/confirm
+    request_payload:
+      type: object
+      additionalProperties: false
+      required: [order_id, idempotency_key]
+      properties:
+        order_id: { $ref: "#/$defs/OrdId" }
+        buyer_id: { $ref: "#/$defs/BuyId" }
+        idempotency_key: { type: string, minLength: 1, maxLength: 128 }
+        # For labs whose rule requires a PO number up front.
+        po_number: { type: string }
+    response_payload:
+      type: object
+      additionalProperties: false
+      required: [order_id, disposition]
+      properties:
+        order_id: { $ref: "#/$defs/OrdId" }
+        # charge -> stored creds/net terms, one-tap; approval -> PO/PI sign-off.
+        disposition: { type: string, enum: [charge, submit_for_approval] }
+        # Blocking gaps found at confirm-time abort the transition to confirmed.
+        blocking_gaps: { $ref: "#/$defs/CompletenessReport" }
+        emitted_event: { type: string, enum: [draft.proposed, exception.raised] }
+
+  # ---- POST /v1/exceptions/{id}/resolve ----------------------------------
+  # Buyer resolves a raised exception; may emit order.amended (pre-payment only).
+  resolve_exception:
+    method: POST
+    path: /v1/exceptions/{exception_id}/resolve
+    path_params:
+      exception_id: { $ref: "#/$defs/ExcId" }
+    request_payload:
+      type: object
+      additionalProperties: false
+      required: [resolution, idempotency_key]
+      properties:
+        resolution: { type: string, enum: [accept_substitute, remove_line, change_qty, ignore] }
+        substitute_product_id: { $ref: "#/$defs/ProdId" }
+        qty: { type: integer, minimum: 0 }
+        idempotency_key: { type: string, minLength: 1, maxLength: 128 }
+    response_payload:
+      type: object
+      additionalProperties: false
+      required: [exception_id, status]
+      properties:
+        exception_id: { $ref: "#/$defs/ExcId" }
+        status: { type: string, enum: [resolved] }
+        emitted_event: { type: string, enum: [order.amended, none] }
+
+# -----------------------------------------------------------------------------
+# The order object returned by /v1/quote and referenced above.
+# -----------------------------------------------------------------------------
+order_object:
+  type: object
+  additionalProperties: false
+  required: [order_id, status, lines, subtotal]
+  properties:
+    order_id: { $ref: "#/$defs/OrdId" }
+    company_id: { $ref: "#/$defs/CoId" }
+    buyer_id: { $ref: "#/$defs/BuyId" }
+    name: { type: string }                # §6: named, e.g. "my Western blot order"
+    shared: { type: boolean }             # §6: shareable saved object
+    status: { type: string, enum: [open, pending_approval, confirmed, paid, cancelled] }
+    lines: { type: array, items: { $ref: "#/$defs/OrderLine" } }
+    subtotal: { $ref: "#/$defs/LandedCost" }
+    completeness: { $ref: "#/$defs/CompletenessReport" }
+
+# =============================================================================
+# EVENTS (async, one-way, any bus). Each `payload` schema below; all ride the
+# Envelope. `source` is fixed per direction and is NEVER "shopify" (INV-1).
+# =============================================================================
+events:
+
+  # ---------------- engine -> adapter -------------------------------------
+  engine_to_adapter:
+
+    catalog.upsert:
+      source: engine
+      payload:
+        type: object
+        additionalProperties: false
+        required: [product_id]
+        properties:
+          product_id: { $ref: "#/$defs/ProdId" }
+          title: { type: string }
+          price: { $ref: "#/$defs/Money" }
+          # Only buyer-facing fields mirror to the adapter (data-model discipline,
+          # docs/ARCHITECTURE.md §11). Offers/equivalence/landed-cost stay in PG.
+          display_metafields: { type: object }
+
+    catalog.retract:
+      source: engine
+      payload:
+        type: object
+        additionalProperties: false
+        required: [product_id]
+        properties:
+          product_id: { $ref: "#/$defs/ProdId" }
+
+    # CROSSING 1 of the thin waist.
+    draft.proposed:
+      source: engine
+      description: "Buyer confirmed. Adapter materializes the commerce draft."
+      payload:
+        type: object
+        additionalProperties: false
+        required: [order_id, company_id, lines, total, disposition]
+        properties:
+          order_id: { $ref: "#/$defs/OrdId" }
+          company_id: { $ref: "#/$defs/CoId" }
+          buyer_id: { $ref: "#/$defs/BuyId" }
+          po_number: { type: string }
+          disposition: { type: string, enum: [charge, submit_for_approval] }
+          lines:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [line_id, product_id, qty, unit_price]
+              properties:
+                line_id: { type: string, pattern: "^oln_[0-9A-HJKMNP-TV-Z]{26}$" }
+                product_id: { $ref: "#/$defs/ProdId" }
+                qty: { type: integer, minimum: 1 }
+                unit_price: { $ref: "#/$defs/Money" }
+          total: { $ref: "#/$defs/Money" }
+
+    order.amended:
+      source: engine
+      description: "Pre-payment draft edit after an exception resolution."
+      payload:
+        type: object
+        additionalProperties: false
+        required: [order_id, lines, total]
+        properties:
+          order_id: { $ref: "#/$defs/OrdId" }
+          lines:
+            type: array
+            items:
+              type: object
+              additionalProperties: false
+              required: [line_id, product_id, qty, unit_price]
+              properties:
+                line_id: { type: string, pattern: "^oln_[0-9A-HJKMNP-TV-Z]{26}$" }
+                product_id: { $ref: "#/$defs/ProdId" }
+                qty: { type: integer, minimum: 1 }
+                unit_price: { $ref: "#/$defs/Money" }
+          total: { $ref: "#/$defs/Money" }
+
+    exception.raised:
+      source: engine
+      description: "A gap/substitution needing buyer resolution; surfaced natively."
+      payload:
+        type: object
+        additionalProperties: false
+        required: [exception_id, order_id, kind]
+        properties:
+          exception_id: { $ref: "#/$defs/ExcId" }
+          order_id: { $ref: "#/$defs/OrdId" }
+          line_id: { type: string, pattern: "^oln_[0-9A-HJKMNP-TV-Z]{26}$" }
+          kind: { type: string, enum: [missing_control, substitution, stockout, price_change] }
+          detail: { type: string }
+
+  # ---------------- adapter -> engine -------------------------------------
+  adapter_to_engine:
+
+    # CROSSING 2 of the thin waist. Engine re-enters here and cuts upstream PO.
+    order.paid:
+      source: adapter
+      description: >
+        Money captured by the commerce layer. Adapter has already resolved the
+        Shopify GID to ord_ (INV-2). Engine is idempotent on idempotency_key
+        (INV-3): a duplicate delivery must NOT cut a second upstream PO.
+      payload:
+        type: object
+        additionalProperties: false
+        required: [order_id, amount_paid, paid_at]
+        properties:
+          order_id: { $ref: "#/$defs/OrdId" }
+          amount_paid: { $ref: "#/$defs/Money" }
+          paid_at: { type: string, format: date-time }
+          # Commercial terms are facts, never academic claims (principle #3).
+          terms: { type: string, enum: [prepaid_card, net_30, net_60, net_90] }
+
+    order.cancelled:
+      source: adapter
+      payload:
+        type: object
+        additionalProperties: false
+        required: [order_id, reason]
+        properties:
+          order_id: { $ref: "#/$defs/OrdId" }
+          reason: { type: string }
+
+# =============================================================================
+# STATE MACHINES — consumers key on (id + these transitions), dropping stale
+# events by occurred_at (INV-4).
+# =============================================================================
+state_machines:
+
+  order:
+    initial: open
+    states: [open, pending_approval, confirmed, paid, cancelled]
+    transitions:
+      - { from: open,             to: confirmed,        on: "/v1/confirm (disposition=charge)",              emits: draft.proposed }
+      - { from: open,             to: pending_approval, on: "/v1/confirm (disposition=submit_for_approval)", emits: draft.proposed }
+      - { from: pending_approval, to: confirmed,        on: "PI/PO approval (adapter-side)",                 emits: none }
+      - { from: pending_approval, to: cancelled,        on: "approval rejected",                             emits: order.cancelled }
+      - { from: confirmed,        to: paid,             on: "order.paid",       emits: "upstream PO cut (internal, not a seam event)" }
+      - { from: confirmed,        to: cancelled,        on: "order.cancelled",  emits: none }
+      # order.amended is a self-loop on open/confirmed (pre-payment edit), never post-paid.
+      - { from: open,             to: open,             on: "/v1/exceptions/{id}/resolve", emits: order.amended }
+      - { from: confirmed,        to: confirmed,        on: "/v1/exceptions/{id}/resolve", emits: order.amended }
+    notes: >
+      Post-payment exceptions are OUT OF SCOPE in v1 (docs/ARCHITECTURE.md §7,
+      open decision §14 #3). order.amended is pre-payment only. If upstream
+      stockouts must surface after order.paid, a refund/partial-fulfillment path
+      is a v2 addition — do not overload order.amended for it.
+
+  exception:
+    initial: raised
+    states: [raised, resolved]
+    transitions:
+      - { from: raised, to: resolved, on: "/v1/exceptions/{id}/resolve" }
+
+# =============================================================================
+# Conformance checklist for the seam validator (used by tests, §12).
+# =============================================================================
+conformance:
+  - Every inbound/outbound message validates against $defs.Envelope.
+  - source is one of [engine, adapter] and matches the event's declared direction.
+  - No string value matches x_seam_reject.value_patterns (INV-1).
+  - No object key matches x_seam_reject.key_patterns (INV-1).
+  - All monetary fields are $defs.Money (integer minor units + ISO-4217) (INV-5).
+  - All ids match their id_conventions prefix + ULID pattern (INV-2).
+  - Re-delivering a message with a seen idempotency_key produces no state change (INV-3).
+  - An event whose occurred_at precedes the entity's last transition is dropped (INV-4).

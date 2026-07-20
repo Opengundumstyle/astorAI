@@ -24,6 +24,13 @@ class License(str, Enum):
     CC0 = "CC0"
     CC_BY = "CC-BY"
     CC_BY_NC = "CC-BY-NC"          # non-commercial: extract FACTS + paraphrase only
+    CC_BY_NC_SA = "CC-BY-NC-SA"    # non-commercial + share-alike; present in the PMC OA subset
+    CC_BY_NC_ND = "CC-BY-NC-ND"    # non-commercial + no-derivatives; the most restrictive CC
+    # Share-alike WITHOUT the NC clause: commercial use is permitted, but derivatives
+    # inherit the licence. Deliberately NOT redistributable by default — serving a
+    # derived index built on SA content can force that obligation onto our own output.
+    # That is a business/counsel call, not a default. Fail closed until made.
+    CC_BY_SA = "CC-BY-SA"
     ALL_RIGHTS_RESERVED = "all-rights-reserved"  # link-out only; do not ingest content
     UNKNOWN = "unknown"            # fail closed until classified
 
@@ -52,24 +59,54 @@ class ReviewSignal(BaseModel):
     NOTE: field→source mapping is provisional until verified against live
     protocols.io payloads (whether a star `rating` exists vs. only engagement)."""
 
-    rating: float | None = None          # e.g. 0–5 stars, if the source has them
+    citations: int | None = None         # Europe PMC citedByCount — the real citation signal
+    # VERIFIED 2026-07-19 against a live protocols.io v4 payload: that API exposes
+    # NO star rating and NO ratings count. Its `stats` object carries engagement
+    # only (views, votes, bookmarks, comments, forks, runs, exports). These two
+    # fields therefore stay unfilled for protocols.io and exist for sources that
+    # do have them. See the note in ARCHITECTURE §4 on the "review-ranked" premise.
+    rating: float | None = None
     ratings_count: int | None = None
     views: int | None = None
+    votes: int | None = None
     bookmarks: int | None = None
     forks: int | None = None
     comments: int | None = None
+    # protocols.io `peer_reviewed`: reviewed by a journal. A categorical QUALITY
+    # signal, not a popularity magnitude — deliberately kept out of `rank_score`
+    # and applied as a separate, higher-priority sort key (see filtering.py), so a
+    # peer-reviewed protocol is never buried by a merely popular one.
+    peer_reviewed: bool | None = None
 
     @property
     def rank_score(self) -> float:
-        """Scalar for 'highest review first'. Prefer an explicit rating weighted
-        by volume (so a lone 5.0 doesn't outrank a 4.6 from hundreds); fall back
-        to weighted engagement when no rating exists. Popularity is a SELECTION
-        signal, not a correctness guarantee — see §4 override."""
+        """Scalar for 'highest review first', in descending order of signal quality:
+
+          1. citation count — what §4 actually wanted ('review/popularity standing in
+             for citation-count'); Europe PMC exposes it directly, so when it is present
+             we use the real thing rather than the proxy.
+          2. explicit rating weighted by volume, so a lone 5.0 does not outrank a 4.6
+             from hundreds of raters.
+          3. weighted engagement, for sources with neither.
+
+        Log-scaled so the tiers land in a comparable order of magnitude and one
+        runaway-cited outlier cannot swamp the list.
+
+        CAVEAT: this is only meaningfully comparable WITHIN one source. A PMC citation
+        count and a protocols.io engagement score are different units on the same
+        number line. Rank per-source and merge deliberately; cross-source
+        normalisation is deferred until we have both corpora to calibrate against.
+
+        Popularity is a SELECTION signal, not a correctness guarantee — see §4 override.
+        """
+        if self.citations is not None:
+            return 10.0 * math.log1p(self.citations)
         if self.rating is not None and self.ratings_count:
             return self.rating * math.log1p(self.ratings_count)
         return float(
             (self.bookmarks or 0) * 3
             + (self.forks or 0) * 2
+            + (self.votes or 0) * 2
             + (self.comments or 0) * 1
             + (self.views or 0) * 0.01
         )
