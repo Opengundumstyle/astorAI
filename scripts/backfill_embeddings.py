@@ -23,6 +23,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", dest="all_rows", action="store_true",
                     help="re-embed every product, not just stale ones")
+    ap.add_argument("--batch-size", type=int, default=64,
+                    help="products per Voyage request (free-tier 10K TPM headroom)")
+    ap.add_argument("--sleep", type=float, default=22.0,
+                    help="seconds between batches (free-tier 3 RPM / 10K TPM pacing)")
     args = ap.parse_args()
 
     embedder = get_embedder()
@@ -33,7 +37,10 @@ def main() -> None:
         )
 
     with session_scope() as session:
-        stats = backfill.backfill_embeddings(session, embedder, only_stale=not args.all_rows)
+        stats = backfill.backfill_embeddings(
+            session, embedder, only_stale=not args.all_rows,
+            batch_size=args.batch_size, sleep_between_batches=args.sleep,
+        )
     print(f"total={stats.total} embedded={stats.embedded} skipped={stats.skipped} "
           f"model={backfill.EMBEDDING_MODEL}")
 

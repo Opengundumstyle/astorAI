@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -55,7 +56,8 @@ def _batched(items, size):
 
 
 def backfill_embeddings(
-    session, embedder: Embedder, *, only_stale: bool, batch_size: int = 128
+    session, embedder: Embedder, *, only_stale: bool, batch_size: int = 128,
+    sleep_between_batches: float = 0.0,
 ) -> BackfillStats:
     """Re-embed products and stamp provenance. Idempotent when only_stale=True."""
     products = list(session.execute(select(Product)).scalars())
@@ -69,6 +71,8 @@ def backfill_embeddings(
     embedded = 0
     total_batches = (len(todo) + batch_size - 1) // batch_size
     for i, chunk in enumerate(_batched(todo, batch_size), start=1):
+        if i > 1 and sleep_between_batches > 0:
+            time.sleep(sleep_between_batches)  # pace requests for free-tier 3 RPM / 10K TPM limits
         vectors = embedder.embed([t for _, t in chunk])
         for (p, txt), vec in zip(chunk, vectors):
             p.embedding = vec
