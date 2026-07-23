@@ -91,6 +91,11 @@ class Product(Base, TimestampMixin):
     specs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
     # Embedding of the canonical product text; populated by the matcher.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim))
+    # Provenance for the embedding above: which model produced it, and a hash of
+    # the exact canonical_text() that was embedded. Lets staleness be a query
+    # (WHERE embedding_model != 'voyage-3') instead of tribal knowledge.
+    embedding_model: Mapped[str | None] = mapped_column(Text)
+    embedding_text_hash: Mapped[str | None] = mapped_column(Text)
 
     offers: Mapped[list["SupplierOffer"]] = relationship(back_populates="product")
 
