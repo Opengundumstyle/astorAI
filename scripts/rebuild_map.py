@@ -10,6 +10,12 @@ Sequence (snapshot is the operator's responsibility BEFORE running -- see plan):
 Usage:
     python -m scripts.rebuild_map                # gate, auto-proceed if it passes
     python -m scripts.rebuild_map --force-rematch  # skip the gate (manual override)
+
+NOTE: Under the current scoring model the gate is EXPECTED to fail — attribute_bonus
+saturates confidence, so kind_accuracy is low and corpus exact_rate is ~1.0 (both miss
+their bars). Passing the gate requires a separate scoring-model fix. Until then, a
+deliberate, human-approved rebuild uses --force-rematch. Do NOT raise max_exact_rate to
+force a pass — that ~1.0 rate is a real signal that exact/substitute labels are unreliable.
 """
 from __future__ import annotations
 
@@ -31,6 +37,10 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--force-rematch", action="store_true", help="skip the gate")
     ap.add_argument("--all", dest="all_rows", action="store_true", help="re-embed every row")
+    ap.add_argument("--batch-size", type=int, default=64,
+                    help="products per Voyage request (free-tier 10K TPM headroom; keep <=128)")
+    ap.add_argument("--sleep", type=float, default=22.0,
+                    help="seconds between batches (free-tier 3 RPM / 10K TPM pacing)")
     args = ap.parse_args()
 
     embedder = get_embedder()
@@ -38,7 +48,10 @@ def main() -> None:
         raise SystemExit(f"Refusing: DevEmbedder (provider={settings.embeddings_provider}).")
 
     with session_scope() as session:
-        stats = backfill.backfill_embeddings(session, embedder, only_stale=not args.all_rows)
+        stats = backfill.backfill_embeddings(
+            session, embedder, only_stale=not args.all_rows,
+            batch_size=args.batch_size, sleep_between_batches=args.sleep,
+        )
         print(f"[backfill] total={stats.total} embedded={stats.embedded} skipped={stats.skipped}")
 
     if not args.force_rematch:
