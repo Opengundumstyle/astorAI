@@ -16,7 +16,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -93,3 +94,46 @@ def match_product(
         written.append(MatchCandidate(str(cand.id), round(conf, 4), kind))
     log.info("matched %s -> %d equivalences", product_id, len(written))
     return written
+
+
+def sample_exact_rate(session: Session, embedder: Embedder, sample_n: int = 500) -> float:
+    """Read-only: fraction of sampled products with >=1 candidate classified exact.
+
+    An absurdly high rate (see the gate's max_exact_rate) means thresholds are too
+    loose. Writes nothing to the DB.
+    """
+    sample = list(
+        session.execute(
+            select(Product).where(Product.embedding.isnot(None)).order_by(func.random()).limit(sample_n)
+        ).scalars()
+    )
+    if not sample:
+        return 0.0
+    with_exact = 0
+    for product in sample:
+        pview = _view(product)
+        neighbours = session.execute(
+            select(Product, Product.embedding.cosine_distance(product.embedding).label("dist"))
+            .where(Product.id != product.id, Product.embedding.isnot(None))
+            .order_by("dist")
+            .limit(settings.equiv_candidates)
+        ).all()
+        for cand, dist in neighbours:
+            conf = scoring.confidence(1.0 - float(dist), pview, _view(cand))
+            if scoring.classify(conf, settings.equiv_exact_threshold, settings.equiv_substitute_threshold) == "exact":
+                with_exact += 1
+                break
+    return with_exact / len(sample)
+
+
+def rematch_all(session: Session, embedder: Embedder | None = None) -> int:
+    """Wipe and rebuild the equivalences table on the current embeddings."""
+    embedder = embedder or get_embedder()
+    session.execute(sql_text("TRUNCATE TABLE equivalences"))
+    session.flush()
+    product_ids = [row[0] for row in session.execute(select(Product.id)).all()]
+    total = 0
+    for pid in product_ids:
+        total += len(match_product(session, str(pid), embedder))
+    log.info("rematch_all wrote %d equivalences over %d products", total, len(product_ids))
+    return total
