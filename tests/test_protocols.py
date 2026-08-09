@@ -623,3 +623,62 @@ def test_map_gate_rank_licensed_mode_serves_unknown_license():
         [_detail(1)], {}, serving_basis="commercial-licence:pio-2026")
     assert len(servable) == 1
     assert link_out == []
+
+
+# --------------------------------------------------------------------------- #
+# Task 8: run_harvest orchestrator (offline-drivable) + hard cap
+# --------------------------------------------------------------------------- #
+def test_run_harvest_offline_end_to_end(tmp_path):
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("western_blot", "Western blot", ["western blot"])]
+    catalog = {
+        10: {"id": 10, "version_id": 2, "peer_reviewed": True,
+             "stats": {"number_of_votes": 3}},
+        11: {"id": 11, "version_id": 1, "peer_reviewed": False,
+             "stats": {"number_of_votes": 99}},
+    }
+    def fake_search(query):
+        return list(catalog.values())
+    def fake_fetch(pid):
+        it = catalog[pid]
+        return {"id": pid, "version_id": it["version_id"], "url": f"https://p.io/{pid}",
+                "title": f"P{pid}", "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    servable, link_out, manifest = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis="commercial-licence:pio-2026",
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+    )
+    assert manifest.shortlisted == 2
+    assert manifest.fetched == 2
+    assert manifest.servable == 2      # licensed mode serves UNKNOWN
+    # peer-reviewed id=10 ranks first despite id=11 having more votes
+    assert servable[0].source_id == "10"
+    # re-run is idempotent: everything already cached
+    _, _, m2 = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis="commercial-licence:pio-2026",
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+    )
+    assert m2.skipped_cached == 2
+    assert m2.fetched == 0
+
+def test_run_harvest_enforces_cap(tmp_path):
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+    seeds = [CategorySeed("c", "C", ["q"])]
+    catalog = {i: {"id": i, "version_id": 1, "stats": {"number_of_votes": i}} for i in range(50)}
+    def fake_search(q): return list(catalog.values())
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+    store = RawStore(tmp_path)
+    _, _, m = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=50, cap=10,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0)
+    assert m.fetched == 10  # stopped at cap

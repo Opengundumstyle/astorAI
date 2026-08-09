@@ -88,3 +88,79 @@ def map_gate_rank(
         allow = DEFAULT_SERVE_LICENSES | {License.UNKNOWN}
     servable, link_out = license_gate(raws, allow=allow)
     return rank_by_review(servable), link_out
+
+
+import logging
+
+log = logging.getLogger(__name__)
+
+
+def run_harvest(
+    seeds,
+    *,
+    source,
+    store,
+    n_per_category: int,
+    cap: int = 1000,
+    serving_basis: str | None = None,
+    allow_network: bool = False,
+    sleep_between: float = 1.0,
+    search_fn=None,
+    fetch_fn=None,
+):
+    """Discover -> shortlist -> fetch(persist, skip cached) -> map -> gate -> rank.
+
+    `search_fn`/`fetch_fn` default to the live double-locked source methods; tests
+    inject fakes for a fully offline run. `cap` is a hard ceiling on total detail
+    fetches across all categories (the ≤1,000 licence limit)."""
+    if search_fn is None:
+        search_fn = lambda q: source.search(  # noqa: E731
+            q, limit=n_per_category * 5, allow_network=allow_network)
+    if fetch_fn is None:
+        fetch_fn = lambda pid: source.fetch_one(  # noqa: E731
+            str(pid), allow_network=allow_network).raw
+
+    manifest = HarvestManifest(serving_basis=serving_basis, cap=cap)
+    list_items_by_id: dict = {}
+    details: list[dict] = []
+
+    for seed in seeds:
+        manifest.queries.extend(seed.queries)
+        candidates: list[dict] = []
+        for q in seed.queries:
+            candidates.extend(search_fn(q))
+        picks = shortlist(candidates, n_per_category)
+        manifest.shortlisted += len(picks)
+
+        for it in picks:
+            if manifest.fetched >= cap:
+                log.warning("harvest cap %d reached; stopping", cap)
+                break
+            pid = it.get("id")
+            list_items_by_id[pid] = it
+            ver = str(_version_key(it))
+            if store.has_detail(str(pid), ver):
+                manifest.skipped_cached += 1
+                details.append(store.read_detail(str(pid), ver))
+                continue
+            try:
+                payload = fetch_fn(pid)
+            except Exception as exc:  # noqa: BLE001 — one bad record must not abort the run
+                manifest.errors += 1
+                log.warning("fetch failed for %s: %s", pid, exc)
+                continue
+            store.write_detail(str(pid), ver, payload)
+            details.append(payload)
+            manifest.fetched += 1
+        if manifest.fetched >= cap:
+            break
+
+    servable, link_out = map_gate_rank(details, list_items_by_id, serving_basis)
+    manifest.servable = len(servable)
+    manifest.link_out = len(link_out)
+    log.info(
+        "harvest done: shortlisted=%d fetched=%d cached=%d servable=%d link_out=%d errors=%d basis=%s",
+        manifest.shortlisted, manifest.fetched, manifest.skipped_cached,
+        manifest.servable, manifest.link_out, manifest.errors, serving_basis,
+    )
+    return servable, link_out, manifest
