@@ -26,15 +26,26 @@ from astor.protocols.sources import ProtocolsIoSource
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--categories", default="docs/curation/categories.csv")
+    ap.add_argument("--category", default=None,
+                    help="run only this category_id (balanced per-category coverage; "
+                         "combine with --cap = --n-per-category and a per-category --manifest-name)")
     ap.add_argument("--n-per-category", type=int, default=100)
     ap.add_argument("--cap", type=int, default=1000)
     ap.add_argument("--serving-basis", default=None)
     ap.add_argument("--sleep", type=float, default=1.0)
     ap.add_argument("--out", default="data/raw/protocols_io")
+    ap.add_argument("--manifest-name", default="manifest.json",
+                    help="manifest filename under --out; give each per-category run its own")
     ap.add_argument("--live", action="store_true", help="enable network (needs licence lock)")
     args = ap.parse_args()
 
     seeds = load_categories(args.categories)
+    if args.category:
+        seeds = [s for s in seeds if s.category_id == args.category]
+        if not seeds:
+            raise SystemExit(
+                f"--category {args.category!r} not found in {args.categories}."
+            )
     print(f"categories: {[s.category_id for s in seeds]}")
     for s in seeds:
         print(f"  {s.category_id}: {s.queries}")
@@ -54,7 +65,7 @@ def main() -> None:
         seeds, source=ProtocolsIoSource(), store=store,
         n_per_category=args.n_per_category, cap=args.cap,
         serving_basis=args.serving_basis, allow_network=True,
-        sleep_between=args.sleep, stamp=stamp,
+        sleep_between=args.sleep, stamp=stamp, manifest_name=args.manifest_name,
     )
     print(
         f"\nfetched={manifest.fetched} cached={manifest.skipped_cached} "
@@ -62,7 +73,7 @@ def main() -> None:
         f"errors={manifest.errors} basis={manifest.serving_basis}"
     )
     print(f"payloads written under {args.out}/details/")
-    print(f"manifest written to {Path(args.out) / 'manifest.json'}")
+    print(f"manifest written to {Path(args.out) / args.manifest_name}")
 
 
 if __name__ == "__main__":

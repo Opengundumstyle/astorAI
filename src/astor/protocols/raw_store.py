@@ -42,8 +42,8 @@ class RawStore:
         path.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
         return path
 
-    def write_manifest(self, manifest: dict) -> Path:
-        path = self.root / "manifest.json"
+    def write_manifest(self, manifest: dict, name: str = "manifest.json") -> Path:
+        path = self.root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
         return path

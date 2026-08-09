@@ -933,6 +933,32 @@ def test_run_harvest_writes_manifest_json(tmp_path):
     assert body["stamp"] == "2026-08-09T00:00:00+00:00"
 
 
+def test_run_harvest_custom_manifest_name(tmp_path):
+    """Per-category runs share one corpus dir but each writes its own manifest,
+    so provenance is not overwritten. Default name stays manifest.json."""
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("western_blot", "Western blot", ["western blot"])]
+
+    def fake_search(q):
+        return [{"id": 1, "version_id": 1, "stats": {"number_of_votes": 2}}]
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=100,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch,
+        sleep_between=0, manifest_name="manifest-western_blot.json",
+    )
+    assert (store.root / "manifest-western_blot.json").exists()
+    assert not (store.root / "manifest.json").exists()  # default name not used
+
+
 def test_run_harvest_manifest_omits_stamp_when_not_given(tmp_path):
     from astor.protocols.categories import CategorySeed
     from astor.protocols.raw_store import RawStore

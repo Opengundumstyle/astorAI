@@ -107,6 +107,7 @@ def run_harvest(
     search_fn=None,
     fetch_fn=None,
     stamp: str | None = None,
+    manifest_name: str = "manifest.json",
 ):
     """Discover -> shortlist -> fetch(persist, skip cached) -> map -> gate -> rank.
 
@@ -204,6 +205,6 @@ def run_harvest(
     }
     if stamp is not None:
         manifest_body["stamp"] = stamp
-    store.write_manifest(manifest_body)
+    store.write_manifest(manifest_body, manifest_name)
 
     return servable, link_out, manifest
