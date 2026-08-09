@@ -4,11 +4,16 @@ protocols_io_licensed). Stages are separable so the offline path (Task 8) drives
 shortlist + map from persisted JSON with no network."""
 from __future__ import annotations
 
+import logging
 import time
+from dataclasses import dataclass, field
 
-from astor.protocols.filtering import rank_by_review
-from astor.protocols.schemas import ReviewSignal
-from astor.protocols.sources import _as_int
+from astor.config import settings
+from astor.protocols.filtering import DEFAULT_SERVE_LICENSES, license_gate, rank_by_review
+from astor.protocols.schemas import License, RawProtocol, ReviewSignal
+from astor.protocols.sources import ProtocolsIoSource, _as_int
+
+log = logging.getLogger(__name__)
 
 
 def review_from_list_item(item: dict) -> ReviewSignal:
@@ -52,13 +57,6 @@ def shortlist(items: list[dict], n: int) -> list[dict]:
     return ranked[:n]
 
 
-from dataclasses import dataclass, field
-
-from astor.protocols.filtering import DEFAULT_SERVE_LICENSES, license_gate
-from astor.protocols.schemas import License, RawProtocol
-from astor.protocols.sources import ProtocolsIoSource
-
-
 @dataclass
 class HarvestManifest:
     serving_basis: str | None = None
@@ -80,8 +78,12 @@ def map_gate_rank(
     source = ProtocolsIoSource()
     raws: list[RawProtocol] = []
     for d in details:
-        li = list_items_by_id.get(d.get("id"))
-        raws.append(source.to_raw(d, list_item=li))
+        try:
+            li = list_items_by_id.get(d.get("id")) if isinstance(d, dict) else None
+            raws.append(source.to_raw(d, list_item=li))
+        except Exception as exc:  # noqa: BLE001 — one bad record must not abort the run
+            log.warning("map (to_raw) failed for %r: %s", d, exc)
+            continue
     allow = DEFAULT_SERVE_LICENSES
     if serving_basis:
         # The licence lives in the CONTRACT, not the payload: an authorised run
@@ -90,11 +92,6 @@ def map_gate_rank(
         allow = DEFAULT_SERVE_LICENSES | {License.UNKNOWN}
     servable, link_out = license_gate(raws, allow=allow)
     return rank_by_review(servable), link_out
-
-
-import logging
-
-log = logging.getLogger(__name__)
 
 
 def run_harvest(
@@ -109,12 +106,27 @@ def run_harvest(
     sleep_between: float = 1.0,
     search_fn=None,
     fetch_fn=None,
+    stamp: str | None = None,
 ):
     """Discover -> shortlist -> fetch(persist, skip cached) -> map -> gate -> rank.
 
     `search_fn`/`fetch_fn` default to the live double-locked source methods; tests
     inject fakes for a fully offline run. `cap` is a hard ceiling on total detail
-    fetches across all categories (the ≤1,000 licence limit)."""
+    fetches across all categories (the ≤1,000 licence limit).
+
+    The double lock is asserted here too, at the top, independent of whatever
+    `search_fn`/`fetch_fn` a caller injects — `ProtocolsIoSource._require_network`
+    only protects the default fns; an orchestrator that trusted injected fns to
+    self-police the licence would be bypassable. `stamp` is an optional caller-
+    supplied timestamp (e.g. from the CLI) recorded in the written manifest; it is
+    never generated here so the orchestrator stays pure and easy to test.
+    """
+    if allow_network and not settings.protocols_io_licensed:
+        raise RuntimeError(
+            "PROTOCOLS_IO_LICENSED is not set. A bulk harvest requires a confirmed "
+            "protocols.io licence (docs/protocol-sourcing-handoff.md §3)."
+        )
+
     if search_fn is None:
         search_fn = lambda q: source.search(  # noqa: E731
             q, limit=n_per_category * 5, allow_network=allow_network)
@@ -130,7 +142,9 @@ def run_harvest(
         manifest.queries.extend(seed.queries)
         candidates: list[dict] = []
         for q in seed.queries:
-            candidates.extend(search_fn(q))
+            items = search_fn(q)
+            store.write_search_page(seed.category_id, q, 1, {"items": items})
+            candidates.extend(items)
         picks = shortlist(candidates, n_per_category)
         manifest.shortlisted += len(picks)
 
@@ -142,11 +156,20 @@ def run_harvest(
             list_items_by_id[pid] = it
             ver = str(_version_key(it))
             if store.has_detail(str(pid), ver):
+                try:
+                    payload = store.read_detail(str(pid), ver)
+                except Exception as exc:  # noqa: BLE001 — a corrupt cache entry must not abort the run
+                    manifest.errors += 1
+                    log.warning("cached read failed for %s v%s: %s", pid, ver, exc)
+                    continue
                 manifest.skipped_cached += 1
-                details.append(store.read_detail(str(pid), ver))
+                details.append(payload)
                 continue
             try:
                 payload = fetch_fn(pid)
+                if not isinstance(payload, dict):
+                    raise TypeError(
+                        f"fetch_fn returned non-dict payload for {pid}: {type(payload)!r}")
             except Exception as exc:  # noqa: BLE001 — one bad record must not abort the run
                 manifest.errors += 1
                 log.warning("fetch failed for %s: %s", pid, exc)
@@ -167,4 +190,20 @@ def run_harvest(
         manifest.shortlisted, manifest.fetched, manifest.skipped_cached,
         manifest.servable, manifest.link_out, manifest.errors, serving_basis,
     )
+
+    manifest_body = {
+        "serving_basis": manifest.serving_basis,
+        "cap": manifest.cap,
+        "queries": manifest.queries,
+        "shortlisted": manifest.shortlisted,
+        "fetched": manifest.fetched,
+        "skipped_cached": manifest.skipped_cached,
+        "servable": manifest.servable,
+        "link_out": manifest.link_out,
+        "errors": manifest.errors,
+    }
+    if stamp is not None:
+        manifest_body["stamp"] = stamp
+    store.write_manifest(manifest_body)
+
     return servable, link_out, manifest

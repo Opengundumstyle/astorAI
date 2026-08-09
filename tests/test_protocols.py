@@ -472,6 +472,27 @@ def test_search_is_double_locked():
         src.search("western blot")  # allow_network defaults False
 
 
+def test_search_licence_lock_blocks_when_not_confirmed(monkeypatch):
+    """Second lock: allow_network=True alone must not be enough — a bulk sweep
+    also needs a confirmed protocols.io licence."""
+    from astor.config import settings
+    monkeypatch.setattr(settings, "protocols_io_licensed", False)
+    src = ProtocolsIoSource()
+    with pytest.raises(RuntimeError, match="PROTOCOLS_IO_LICENSED"):
+        src.search("western blot", allow_network=True)
+
+
+def test_search_token_lock_blocks_when_licensed_but_no_token(monkeypatch):
+    """Third lock: even licensed, a missing token must still block — and no real
+    network call happens, since the guard raises before httpx is touched."""
+    from astor.config import settings
+    monkeypatch.setattr(settings, "protocols_io_licensed", True)
+    monkeypatch.setattr(settings, "protocols_io_token", None)
+    src = ProtocolsIoSource()
+    with pytest.raises(RuntimeError, match="TOKEN"):
+        src.search("western blot", allow_network=True)
+
+
 # --------------------------------------------------------------------------- #
 # Task 3: ProtocolsIoSource._search_network() — paged httpx loop with test seam
 # --------------------------------------------------------------------------- #
@@ -734,3 +755,202 @@ def test_run_harvest_throttles_live_fetches_only(tmp_path, monkeypatch):
         serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=1.0)
     assert m2.fetched == 0
     assert sleep_calls == []
+
+
+# --------------------------------------------------------------------------- #
+# Final-review fixes: orchestrator double-lock, map-stage error isolation,
+# persisted search pages, and a written run manifest.
+# --------------------------------------------------------------------------- #
+def test_run_harvest_enforces_licence_lock_before_any_fetching(tmp_path, monkeypatch):
+    """The double lock must be asserted by the orchestrator itself, not just by
+    the default search_fn/fetch_fn — an injected fake must not be able to bypass
+    it. Nothing should be fetched once the lock trips."""
+    from astor.config import settings
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    monkeypatch.setattr(settings, "protocols_io_licensed", False)
+    seeds = [CategorySeed("c", "C", ["q"])]
+    store = RawStore(tmp_path)
+
+    fetch_calls = []
+
+    def fake_search(q):
+        return [{"id": 1, "version_id": 1, "stats": {}}]
+
+    def fake_fetch(pid):
+        fetch_calls.append(pid)
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    with pytest.raises(RuntimeError, match="PROTOCOLS_IO_LICENSED"):
+        harvest.run_harvest(
+            seeds, source=None, store=store, n_per_category=10, cap=1000,
+            allow_network=True, search_fn=fake_search, fetch_fn=fake_fetch,
+            sleep_between=0,
+        )
+    assert fetch_calls == []
+
+
+def test_run_harvest_offline_default_is_unaffected_by_the_lock(tmp_path):
+    """Existing offline tests pass allow_network defaulting False, so the new
+    top-of-function lock check must be a no-op for them."""
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("c", "C", ["q"])]
+    store = RawStore(tmp_path)
+
+    def fake_search(q):
+        return [{"id": 1, "version_id": 1, "stats": {}}]
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    _, _, m = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+    )
+    assert m.fetched == 1
+
+
+def test_run_harvest_skips_corrupt_cached_detail_and_keeps_going(tmp_path):
+    """A corrupt cached detail file must not abort the whole run — it should be
+    skipped and counted as an error, while other records still produce output."""
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("c", "C", ["q"])]
+    catalog = {
+        1: {"id": 1, "version_id": 1, "stats": {"number_of_votes": 5}},
+        2: {"id": 2, "version_id": 1, "stats": {"number_of_votes": 1}},
+    }
+
+    def fake_search(q):
+        return list(catalog.values())
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    # Pre-seed a corrupt cache entry for id=1 so has_detail() is True but
+    # read_detail() blows up.
+    detail_path = store.detail_path("1", "1")
+    detail_path.parent.mkdir(parents=True, exist_ok=True)
+    detail_path.write_text("{not valid json", encoding="utf-8")
+
+    _, _, m = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch,
+        sleep_between=0,
+    )
+    assert m.errors == 1
+    assert m.skipped_cached == 0       # the corrupt entry was not counted as a hit
+    assert m.fetched == 1              # id=2 still fetched
+    assert m.link_out == 1             # id=2 still mapped through (UNKNOWN -> link-out)
+
+
+def test_map_gate_rank_skips_records_that_fail_to_map():
+    """A single malformed detail record must not abort mapping for the rest."""
+    from astor.protocols.harvest import map_gate_rank
+
+    details = [_detail(1), "not-a-dict-payload", _detail(2)]
+    servable, link_out = map_gate_rank(
+        details, {}, serving_basis="commercial-licence:pio-2026")
+    assert len(servable) == 2
+
+
+def test_run_harvest_persists_search_pages(tmp_path):
+    """M4: each search query's raw items must be written to disk, not just held
+    in memory, so a later map-stage fix can re-read from persisted JSON."""
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("western_blot", "Western blot", ["western blot"])]
+
+    def fake_search(q):
+        return [{"id": 1, "version_id": 1, "stats": {}}]
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+    )
+    page_path = store.root / "searches" / "western_blot" / "western-blot-p1.json"
+    assert page_path.exists()
+    body = json.loads(page_path.read_text(encoding="utf-8"))
+    assert body["items"][0]["id"] == 1
+
+
+def test_run_harvest_writes_manifest_json(tmp_path):
+    """M5: the run manifest must be written to <store.root>/manifest.json and
+    round-trip the same counts as the returned HarvestManifest."""
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("c", "C", ["q"])]
+    catalog = {
+        1: {"id": 1, "version_id": 1, "stats": {"number_of_votes": 5}},
+        2: {"id": 2, "version_id": 1, "stats": {"number_of_votes": 1}},
+    }
+
+    def fake_search(q):
+        return list(catalog.values())
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    _, _, manifest = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis="commercial-licence:pio-2026",
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+        stamp="2026-08-09T00:00:00+00:00",
+    )
+    manifest_path = store.root / "manifest.json"
+    assert manifest_path.exists()
+    body = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert body["fetched"] == manifest.fetched
+    assert body["servable"] == manifest.servable
+    assert body["link_out"] == manifest.link_out
+    assert body["errors"] == manifest.errors
+    assert body["shortlisted"] == manifest.shortlisted
+    assert body["skipped_cached"] == manifest.skipped_cached
+    assert body["cap"] == manifest.cap
+    assert body["serving_basis"] == "commercial-licence:pio-2026"
+    assert body["stamp"] == "2026-08-09T00:00:00+00:00"
+
+
+def test_run_harvest_manifest_omits_stamp_when_not_given(tmp_path):
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    seeds = [CategorySeed("c", "C", ["q"])]
+
+    def fake_search(q):
+        return [{"id": 1, "version_id": 1, "stats": {}}]
+
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+
+    store = RawStore(tmp_path)
+    harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0,
+    )
+    body = json.loads((store.root / "manifest.json").read_text(encoding="utf-8"))
+    assert "stamp" not in body

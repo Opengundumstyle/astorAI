@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 from pathlib import Path
 
 from astor.config import settings
@@ -48,11 +49,12 @@ def main() -> None:
         )
 
     store = RawStore(args.out)
+    stamp = datetime.now(timezone.utc).isoformat()
     servable, link_out, manifest = harvest.run_harvest(
         seeds, source=ProtocolsIoSource(), store=store,
         n_per_category=args.n_per_category, cap=args.cap,
         serving_basis=args.serving_basis, allow_network=True,
-        sleep_between=args.sleep,
+        sleep_between=args.sleep, stamp=stamp,
     )
     print(
         f"\nfetched={manifest.fetched} cached={manifest.skipped_cached} "
@@ -60,6 +62,7 @@ def main() -> None:
         f"errors={manifest.errors} basis={manifest.serving_basis}"
     )
     print(f"payloads written under {args.out}/details/")
+    print(f"manifest written to {Path(args.out) / 'manifest.json'}")
 
 
 if __name__ == "__main__":

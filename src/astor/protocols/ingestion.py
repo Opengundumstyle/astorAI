@@ -77,10 +77,13 @@ def run_from_search(
 ) -> ProtocolIngestResult:
     """Live entry point for sources whose ToS permits systematic retrieval.
 
-    Only sources exposing `search` can be driven this way, which is exactly the
-    set we are allowed to sweep — protocols.io has no `search` here precisely
-    because sweeping it is the restricted act (PI-6). Queries run one at a time
-    rather than concurrently: batch, don't one-shot.
+    Only sources marked `sweepable=True` can be driven this way. protocols.io now
+    has a `search` method too, but it stays gated behind the double lock
+    (allow_network + a confirmed licence) and `sweepable=False`, because bulk
+    sweeping it is the restricted act (PI-6) — the presence of a `search` method
+    is not itself permission to sweep. Gated sources are driven from explicit
+    identifiers or saved payloads instead (see `harvest.run_harvest`). Queries
+    run one at a time rather than concurrently: batch, don't one-shot.
     """
     source = for_source(source_name)
     if not getattr(source, "sweepable", False):
