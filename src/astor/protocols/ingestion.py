@@ -83,9 +83,9 @@ def run_from_search(
     rather than concurrently: batch, don't one-shot.
     """
     source = for_source(source_name)
-    if not hasattr(source, "search"):
+    if not getattr(source, "sweepable", False):
         raise RuntimeError(
-            f"Source {source_name!r} exposes no search(): it cannot be swept. "
+            f"Source {source_name!r} is not sweepable: it cannot be swept. "
             "Gated sources are driven from explicit identifiers or saved payloads."
         )
 

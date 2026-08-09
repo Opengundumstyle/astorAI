@@ -571,3 +571,34 @@ def test_raw_store_search_page_path_is_slugged(tmp_path):
     p = store.write_search_page("western_blot", "western blot", 1, {"items": []})
     assert p.exists()
     assert "western-blot-p1.json" in str(p)
+
+
+# --------------------------------------------------------------------------- #
+# Task 6: Shortlist stage + run_from_search sweepable invariant
+# --------------------------------------------------------------------------- #
+def _li(id, ver, peer=False, votes=0, views=0):
+    return {"id": id, "version_id": ver, "peer_reviewed": peer,
+            "stats": {"number_of_votes": votes, "number_of_views": views}}
+
+def test_shortlist_dedupes_by_id_keeping_latest_version():
+    from astor.protocols.harvest import shortlist
+    items = [_li(1, 1, votes=5), _li(1, 3, votes=5), _li(2, 1, votes=1)]
+    out = shortlist(items, n=10)
+    v_for_1 = next(it["version_id"] for it in out if it["id"] == 1)
+    assert v_for_1 == 3
+    assert len(out) == 2
+
+def test_shortlist_peer_reviewed_outranks_popularity():
+    from astor.protocols.harvest import shortlist
+    items = [_li(1, 1, peer=False, votes=999), _li(2, 1, peer=True, votes=0)]
+    out = shortlist(items, n=10)
+    assert out[0]["id"] == 2  # peer-reviewed first despite fewer votes
+
+def test_shortlist_takes_top_n():
+    from astor.protocols.harvest import shortlist
+    items = [_li(i, 1, votes=i) for i in range(20)]
+    assert len(shortlist(items, n=5)) == 5
+
+def test_run_from_search_rejects_unsweepable_source():
+    with pytest.raises(RuntimeError, match="cannot be swept"):
+        ingestion.run_from_search(source_name="protocols.io")
