@@ -544,3 +544,30 @@ def test_load_categories_unknown_id_falls_back_to_name(tmp_path):
     )
     seeds = load_categories(csv)
     assert seeds[0].queries  # non-empty fallback
+
+
+# --------------------------------------------------------------------------- #
+# Task 5: Raw-payload persistence to disk
+# --------------------------------------------------------------------------- #
+def test_raw_store_detail_roundtrip_and_skip(tmp_path):
+    from astor.protocols.raw_store import RawStore
+    store = RawStore(tmp_path)
+    assert store.has_detail("321062", "2") is False
+    store.write_detail("321062", "2", {"id": 321062, "version_id": 2})
+    assert store.has_detail("321062", "2") is True
+    assert store.read_detail("321062", "2")["id"] == 321062
+
+def test_raw_store_iter_details(tmp_path):
+    from astor.protocols.raw_store import RawStore
+    store = RawStore(tmp_path)
+    store.write_detail("1", "1", {"id": 1})
+    store.write_detail("2", "1", {"id": 2})
+    ids = sorted(d["id"] for d in store.iter_details())
+    assert ids == [1, 2]
+
+def test_raw_store_search_page_path_is_slugged(tmp_path):
+    from astor.protocols.raw_store import RawStore
+    store = RawStore(tmp_path)
+    p = store.write_search_page("western_blot", "western blot", 1, {"items": []})
+    assert p.exists()
+    assert "western-blot-p1.json" in str(p)
