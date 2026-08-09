@@ -48,3 +48,43 @@ def shortlist(items: list[dict], n: int) -> list[dict]:
         reverse=True,
     )
     return ranked[:n]
+
+
+from dataclasses import dataclass, field
+
+from astor.protocols.filtering import DEFAULT_SERVE_LICENSES, license_gate
+from astor.protocols.schemas import License, RawProtocol
+from astor.protocols.sources import ProtocolsIoSource
+
+
+@dataclass
+class HarvestManifest:
+    serving_basis: str | None = None
+    cap: int = 1000
+    queries: list[str] = field(default_factory=list)
+    shortlisted: int = 0
+    fetched: int = 0
+    skipped_cached: int = 0
+    servable: int = 0
+    link_out: int = 0
+    errors: int = 0
+
+
+def map_gate_rank(
+    details: list[dict],
+    list_items_by_id: dict,
+    serving_basis: str | None,
+) -> tuple[list[RawProtocol], list[RawProtocol]]:
+    source = ProtocolsIoSource()
+    raws: list[RawProtocol] = []
+    for d in details:
+        li = list_items_by_id.get(d.get("id"))
+        raws.append(source.to_raw(d, list_item=li))
+    allow = DEFAULT_SERVE_LICENSES
+    if serving_basis:
+        # The licence lives in the CONTRACT, not the payload: an authorised run
+        # may serve records the API labels UNKNOWN. Widen the allow-set for THIS
+        # run only; the module default is never mutated.
+        allow = DEFAULT_SERVE_LICENSES | {License.UNKNOWN}
+    servable, link_out = license_gate(raws, allow=allow)
+    return rank_by_review(servable), link_out

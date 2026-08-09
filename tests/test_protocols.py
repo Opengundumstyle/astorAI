@@ -602,3 +602,24 @@ def test_shortlist_takes_top_n():
 def test_run_from_search_rejects_unsweepable_source():
     with pytest.raises(RuntimeError, match="cannot be swept"):
         ingestion.run_from_search(source_name="protocols.io")
+
+
+# --------------------------------------------------------------------------- #
+# Task 7: Serving-basis gate override + run manifest
+# --------------------------------------------------------------------------- #
+def _detail(id, ver=1):
+    return {"id": id, "version_id": ver, "url": f"https://p.io/{id}",
+            "title": "T", "steps": [], "materials_text": ""}
+
+def test_map_gate_rank_link_out_mode_serves_nothing():
+    from astor.protocols.harvest import map_gate_rank
+    servable, link_out = map_gate_rank([_detail(1)], {}, serving_basis=None)
+    assert servable == []
+    assert len(link_out) == 1
+
+def test_map_gate_rank_licensed_mode_serves_unknown_license():
+    from astor.protocols.harvest import map_gate_rank
+    servable, link_out = map_gate_rank(
+        [_detail(1)], {}, serving_basis="commercial-licence:pio-2026")
+    assert len(servable) == 1
+    assert link_out == []
