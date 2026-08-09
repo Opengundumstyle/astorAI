@@ -512,3 +512,35 @@ def test_search_network_passes_peer_reviewed_filter():
     src._search_network("x", limit=10, page_size=50,
                         peer_reviewed_only=True, client=client, sleep_between=0)
     assert client.calls[0].get("peer_reviewed") == 1
+
+
+# --------------------------------------------------------------------------- #
+# Task 4: Category seed loader
+# --------------------------------------------------------------------------- #
+def test_load_categories_maps_synonyms(tmp_path):
+    from astor.protocols.categories import load_categories
+    csv = tmp_path / "categories.csv"
+    csv.write_text(
+        "category_id,category_name,why_this_one,has_run_it,notes\n"
+        "western_blot,Western blot / x,r,yes,n\n"
+        "rt_qpcr,RT-qPCR / y,r,yes,n\n",
+        encoding="utf-8",
+    )
+    seeds = load_categories(csv)
+    ids = [s.category_id for s in seeds]
+    assert ids == ["western_blot", "rt_qpcr"]
+    wb = next(s for s in seeds if s.category_id == "western_blot")
+    assert "western blot" in [q.lower() for q in wb.queries]
+    assert len(wb.queries) >= 2  # has synonyms
+
+
+def test_load_categories_unknown_id_falls_back_to_name(tmp_path):
+    from astor.protocols.categories import load_categories
+    csv = tmp_path / "c.csv"
+    csv.write_text(
+        "category_id,category_name,why_this_one,has_run_it,notes\n"
+        "novel_assay,Novel Assay / z,r,no,n\n",
+        encoding="utf-8",
+    )
+    seeds = load_categories(csv)
+    assert seeds[0].queries  # non-empty fallback
