@@ -13,3 +13,6 @@ build/
 .superpowers/
 web/node_modules
 web/.next
+
+# Raw protocols.io payloads — fetched artifacts, not source
+/data/raw/protocols_io/
