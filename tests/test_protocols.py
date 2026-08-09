@@ -682,3 +682,55 @@ def test_run_harvest_enforces_cap(tmp_path):
         seeds, source=None, store=store, n_per_category=50, cap=10,
         serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0)
     assert m.fetched == 10  # stopped at cap
+
+def test_run_harvest_cap_breaks_across_categories(tmp_path):
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+    # Category 1 alone (5 candidates) exceeds cap=3; category 2's ids (>=100) must
+    # never be reached — proves the outer-loop break, not just the inner one.
+    seeds = [
+        CategorySeed("c1", "C1", ["q1"]),
+        CategorySeed("c2", "C2", ["q2"]),
+    ]
+    catalog1 = {i: {"id": i, "version_id": 1, "stats": {"number_of_votes": i}} for i in range(5)}
+    catalog2 = {i: {"id": i, "version_id": 1, "stats": {"number_of_votes": i}} for i in range(100, 105)}
+    def fake_search(q):
+        return list(catalog1.values()) if q == "q1" else list(catalog2.values())
+    fetched_pids = []
+    def fake_fetch(pid):
+        fetched_pids.append(pid)
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+    store = RawStore(tmp_path)
+    _, _, m = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=3,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=0)
+    assert m.fetched == 3
+    assert all(pid < 100 for pid in fetched_pids)  # category 2 never fetched
+
+def test_run_harvest_throttles_live_fetches_only(tmp_path, monkeypatch):
+    from astor.protocols.categories import CategorySeed
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+    seeds = [CategorySeed("c", "C", ["q"])]
+    catalog = {i: {"id": i, "version_id": 1, "stats": {"number_of_votes": i}} for i in range(3)}
+    def fake_search(q): return list(catalog.values())
+    def fake_fetch(pid):
+        return {"id": pid, "version_id": 1, "url": "u", "title": "t",
+                "steps": [], "materials_text": ""}
+    sleep_calls = []
+    monkeypatch.setattr("astor.protocols.harvest.time.sleep", lambda s: sleep_calls.append(s))
+    store = RawStore(tmp_path)
+    _, _, m = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=1.0)
+    assert m.fetched == 3
+    assert sleep_calls == [1.0, 1.0, 1.0]  # once per live fetch
+    # idempotent re-run: everything cached, no network, so no sleep calls at all
+    sleep_calls.clear()
+    _, _, m2 = harvest.run_harvest(
+        seeds, source=None, store=store, n_per_category=10, cap=1000,
+        serving_basis=None, search_fn=fake_search, fetch_fn=fake_fetch, sleep_between=1.0)
+    assert m2.fetched == 0
+    assert sleep_calls == []

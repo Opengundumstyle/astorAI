@@ -4,6 +4,8 @@ protocols_io_licensed). Stages are separable so the offline path (Task 8) drives
 shortlist + map from persisted JSON with no network."""
 from __future__ import annotations
 
+import time
+
 from astor.protocols.filtering import rank_by_review
 from astor.protocols.schemas import ReviewSignal
 from astor.protocols.sources import _as_int
@@ -152,6 +154,8 @@ def run_harvest(
             store.write_detail(str(pid), ver, payload)
             details.append(payload)
             manifest.fetched += 1
+            if sleep_between:
+                time.sleep(sleep_between)
         if manifest.fetched >= cap:
             break
 
