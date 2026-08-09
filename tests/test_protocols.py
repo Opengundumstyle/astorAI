@@ -397,12 +397,6 @@ def test_protocols_io_endpoint_versions_are_split():
     assert src.LIST_BASE.endswith("/v3")
 
 
-def test_adapter_exposes_no_search_method():
-    """Sweeping is the contractually restricted act (ToS 4.A.xi), so the gated
-    adapter must not offer a sweep affordance at all."""
-    assert not hasattr(ProtocolsIoSource(), "search")
-
-
 def test_docs_author_shape_still_maps():
     """The docs' example uses {'name': ...} while the LIVE payload uses
     {first_name, last_name}. Both must map -- the docs lag the API."""
@@ -446,3 +440,33 @@ def test_sources_declare_sweepability():
 def test_licensed_flag_defaults_false():
     from astor.config import settings
     assert settings.protocols_io_licensed is False
+
+
+# --------------------------------------------------------------------------- #
+# Task 2: ProtocolsIoSource.search() — offline mapping of a v3 list page
+# --------------------------------------------------------------------------- #
+def _v3_list_body(items, next_page=None):
+    return {"items": items, "pagination": {"next_page": next_page, "total_pages": 3}}
+
+
+def test_list_items_extracts_item_array():
+    src = ProtocolsIoSource()
+    body = _v3_list_body([{"id": 1}, {"id": 2}])
+    assert src._list_items(body) == [{"id": 1}, {"id": 2}]
+
+
+def test_list_items_falls_back_to_protocols_key():
+    src = ProtocolsIoSource()
+    assert src._list_items({"protocols": [{"id": 9}]}) == [{"id": 9}]
+
+
+def test_next_page_reads_pagination():
+    src = ProtocolsIoSource()
+    assert src._next_page(_v3_list_body([], next_page=2)) == 2
+    assert src._next_page(_v3_list_body([], next_page=None)) is None
+
+
+def test_search_is_double_locked():
+    src = ProtocolsIoSource()
+    with pytest.raises(RuntimeError, match="gated"):
+        src.search("western blot")  # allow_network defaults False

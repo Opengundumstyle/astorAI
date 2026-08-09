@@ -148,6 +148,52 @@ class ProtocolsIoSource:
     BASE = "https://www.protocols.io/api/v4"        # single-protocol fetch
     LIST_BASE = "https://www.protocols.io/api/v3"   # listing / search
 
+    @staticmethod
+    def _list_items(body: dict) -> list[dict]:
+        items = body.get("items")
+        if items is None:
+            items = body.get("protocols")
+        return [it for it in (items or []) if isinstance(it, dict)]
+
+    @staticmethod
+    def _next_page(body: dict) -> int | None:
+        pg = body.get("pagination") or {}
+        nxt = pg.get("next_page")
+        return nxt if isinstance(nxt, int) and nxt > 0 else None
+
+    def _require_network(self, allow_network: bool) -> None:
+        """Both locks. Bulk search/fetch stays off until a licence is confirmed AND
+        the caller explicitly opts in — the pull is the ToS-restricted act (§3)."""
+        if not allow_network:
+            raise RuntimeError(
+                "Network fetch is gated (allow_network=False). Bulk pulls carry "
+                "licence/ToS exposure (docs/protocol-sourcing-handoff.md §3)."
+            )
+        if not settings.protocols_io_licensed:
+            raise RuntimeError(
+                "PROTOCOLS_IO_LICENSED is not set. A bulk sweep requires a confirmed "
+                "protocols.io licence (docs/protocol-sourcing-handoff.md §3)."
+            )
+        if not settings.protocols_io_token:
+            raise RuntimeError("ProtocolsIoSource needs PROTOCOLS_IO_TOKEN.")
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 100,
+        page_size: int = 50,
+        peer_reviewed_only: bool = False,
+        allow_network: bool = False,
+    ) -> list[dict]:
+        """Paged v3 list search → raw list items (dicts). Double-locked.
+        Implemented as a network loop in Task 3; the guard is enforced here."""
+        self._require_network(allow_network)
+        return self._search_network(query, limit, page_size, peer_reviewed_only)
+
+    def _search_network(self, query, limit, page_size, peer_reviewed_only):  # Task 3
+        raise NotImplementedError
+
     def to_raw(self, payload: dict, *, list_item: dict | None = None) -> RawProtocol:
         """Map one protocols.io protocol object → RawProtocol.
 
