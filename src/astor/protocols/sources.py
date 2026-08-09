@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from typing import Protocol
 
 from astor.config import settings
@@ -191,8 +192,49 @@ class ProtocolsIoSource:
         self._require_network(allow_network)
         return self._search_network(query, limit, page_size, peer_reviewed_only)
 
-    def _search_network(self, query, limit, page_size, peer_reviewed_only):  # Task 3
-        raise NotImplementedError
+    def _search_network(
+        self, query, limit, page_size, peer_reviewed_only,
+        *, client=None, sleep_between: float = 1.0,
+    ) -> list[dict]:
+        import httpx
+        own = client is None
+        if own:
+            client = httpx.Client(timeout=30.0)
+        headers = {"Authorization": f"Bearer {settings.protocols_io_token}"}
+        page_size = max(1, min(page_size, 50))
+        out: list[dict] = []
+        page = 1
+        try:
+            while len(out) < limit:
+                params = {
+                    "filter": "public",
+                    "key": query,
+                    "order_field": "relevance",
+                    "page_size": page_size,
+                    "page_id": page,
+                }
+                if peer_reviewed_only:
+                    params["peer_reviewed"] = 1
+                resp = client.get(
+                    f"{self.LIST_BASE}/protocols",
+                    params=params, headers=headers, timeout=30.0,
+                )
+                resp.raise_for_status()
+                body = resp.json()
+                items = self._list_items(body)
+                if not items:
+                    break
+                out.extend(items)
+                nxt = self._next_page(body)
+                if nxt is None or nxt == page:
+                    break
+                page = nxt
+                if sleep_between:
+                    time.sleep(sleep_between)
+        finally:
+            if own:
+                client.close()
+        return out[:limit]
 
     def to_raw(self, payload: dict, *, list_item: dict | None = None) -> RawProtocol:
         """Map one protocols.io protocol object → RawProtocol.

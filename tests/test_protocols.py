@@ -470,3 +470,45 @@ def test_search_is_double_locked():
     src = ProtocolsIoSource()
     with pytest.raises(RuntimeError, match="gated"):
         src.search("western blot")  # allow_network defaults False
+
+
+# --------------------------------------------------------------------------- #
+# Task 3: ProtocolsIoSource._search_network() — paged httpx loop with test seam
+# --------------------------------------------------------------------------- #
+class _FakeResp:
+    def __init__(self, body): self._body = body
+    def raise_for_status(self): pass
+    def json(self): return self._body
+
+class _FakeClient:
+    """Serves canned v3 pages in order; records params seen."""
+    def __init__(self, pages): self._pages = list(pages); self.calls = []
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(params)
+        return _FakeResp(self._pages.pop(0))
+
+def test_search_network_paginates_until_next_page_none():
+    src = ProtocolsIoSource()
+    pages = [
+        {"items": [{"id": 1}, {"id": 2}], "pagination": {"next_page": 2}},
+        {"items": [{"id": 3}], "pagination": {"next_page": None}},
+    ]
+    client = _FakeClient(pages)
+    items = src._search_network("western blot", limit=100, page_size=50,
+                                peer_reviewed_only=False, client=client, sleep_between=0)
+    assert [it["id"] for it in items] == [1, 2, 3]
+
+def test_search_network_respects_limit():
+    src = ProtocolsIoSource()
+    pages = [{"items": [{"id": i} for i in range(50)], "pagination": {"next_page": 2}}]
+    client = _FakeClient(pages)
+    items = src._search_network("x", limit=10, page_size=50,
+                                peer_reviewed_only=False, client=client, sleep_between=0)
+    assert len(items) == 10
+
+def test_search_network_passes_peer_reviewed_filter():
+    src = ProtocolsIoSource()
+    client = _FakeClient([{"items": [], "pagination": {"next_page": None}}])
+    src._search_network("x", limit=10, page_size=50,
+                        peer_reviewed_only=True, client=client, sleep_between=0)
+    assert client.calls[0].get("peer_reviewed") == 1
