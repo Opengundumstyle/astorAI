@@ -31,6 +31,7 @@ class Settings(BaseSettings):
 
     # -- protocols.io ingest (v1 protocol source; secrets stay in .env) ------ #
     protocols_io_token: str | None = None  # required for live fetch (gated, see sources.py)
+    protocols_io_licensed: bool = False  # second lock: bulk search/fetch stays off until a licence is confirmed
 
     equiv_exact_threshold: float = 0.92
     equiv_substitute_threshold: float = 0.80

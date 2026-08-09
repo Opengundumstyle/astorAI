@@ -136,6 +136,8 @@ class ProtocolsIoSource:
     so an accidental import can never bulk-pull licensed content.
     """
 
+    sweepable = False   # bulk search is the ToS-restricted act; gated + licence-locked
+
     # VERSIONS ARE SPLIT, per apidoc.protocols.io (titled "protocols.io API v3"):
     #   Get Protocol  -> GET /api/v4/protocols/{id}     (documented as v4)
     #   List/search   -> GET /api/v3/protocols          (documented as v3)
@@ -296,6 +298,8 @@ class EuropePmcSource:
     extraction pass (handoff §5.3, mirroring `catalog/extraction.py`) and is a
     separate stage — this adapter deliberately does not fake it.
     """
+
+    sweepable = True    # OA subset is explicitly provided for text mining
 
     BASE = "https://www.ebi.ac.uk/europepmc/webservices/rest"
 

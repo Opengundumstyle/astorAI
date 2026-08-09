@@ -433,3 +433,16 @@ def test_structured_material_maps_vendor_and_catalog_number():
     ]))
     m = raw.materials[0]
     assert (m.name, m.vendor, m.catalog_no) == ("RNeasy® Mini Kit", "Qiagen", "74104")
+
+
+# --------------------------------------------------------------------------- #
+# Source attributes and configuration
+# --------------------------------------------------------------------------- #
+def test_sources_declare_sweepability():
+    assert ProtocolsIoSource.sweepable is False
+    assert EuropePmcSource.sweepable is True
+
+
+def test_licensed_flag_defaults_false():
+    from astor.config import settings
+    assert settings.protocols_io_licensed is False
