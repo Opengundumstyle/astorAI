@@ -206,10 +206,14 @@ class ProtocolsIoSource:
         page = 1
         try:
             while len(out) < limit:
+                # VERIFIED 2026-08-09 against the live v3 endpoint: `filter` is
+                # required, and `order_field=relevance` is REJECTED with 400 —
+                # dropping it uses the API's default ordering (equivalent to
+                # `activity`), which is fine because we re-rank by review
+                # ourselves downstream. `page_id` is 1-indexed (0 → 400).
                 params = {
                     "filter": "public",
                     "key": query,
-                    "order_field": "relevance",
                     "page_size": page_size,
                     "page_id": page,
                 }
