@@ -27,7 +27,9 @@ SEED_SYNONYMS: dict[str, list[str]] = {
     # short (2 words max) because the v3 key search returns ~0 for longer phrases.
     "protein_purification": ["protein purification", "affinity purification", "affinity chromatography"],
     "immunoprecipitation": ["immunoprecipitation", "co-immunoprecipitation", "chromatin immunoprecipitation"],
-    "enzyme_inhibitor_assay": ["enzyme assay", "enzyme activity", "kinase assay"],
+    # "enzyme assay"/"kinase assay" returned ~0; single common terms have coverage
+    # (verified 2026-08-10: enzyme=545, inhibitor=294, protease=143, kinase=125).
+    "enzyme_inhibitor_assay": ["enzyme", "inhibitor", "protease", "kinase"],
     "nucleic_acid_extraction": ["DNA extraction", "RNA extraction", "plasmid extraction"],
     "cloning_protein_expression": ["molecular cloning", "protein expression", "gibson assembly"],
 }
