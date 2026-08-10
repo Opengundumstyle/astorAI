@@ -78,3 +78,31 @@ def test_duplicate_material_names_matched_once():
 def test_material_view_maps_vendor_and_catalog_to_brand_mpn():
     v = mm._material_view("X", "Acme", "W-1")
     assert v.brand == "Acme" and v.mpn == "W-1"
+
+def test_embed_failure_on_one_material_is_isolated():
+    class _Boom:
+        def __init__(self): self.calls = 0
+        def embed(self, texts):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("embedding service down")
+            return [[0.0]]
+    p = _protocol([{"name": "bad one"}, {"name": "good one"}])
+    # first material raises (skipped), second returns a strong candidate
+    cands_by_call = {"n": 0}
+    def ann(s, v, n):
+        return [(_prod("g", "good one"), 0.02)]  # sim 0.98 -> exact
+    out = mm.match_protocol_materials(None, p, _Boom(),
+                                      exact_lookup=lambda *a: None, ann_candidates=ann)
+    assert [m.material_name for m in out] == ["good one"]  # first skipped, second matched
+
+def test_semantic_keeps_highest_of_multiple_confident():
+    p = _protocol([{"name": "TRIzol"}])
+    # both clear the substitute threshold (0.80); the 0.98 one must win over 0.85
+    cands = [(_prod("mid", "TRIzol-ish"), 0.15),   # sim 0.85 -> substitute
+             (_prod("top", "TRIzol"), 0.02)]        # sim 0.98 -> exact, higher conf
+    out = mm.match_protocol_materials(None, p, _Emb(),
+                                      exact_lookup=lambda *a: None,
+                                      ann_candidates=lambda s, v, n: cands)
+    assert len(out) == 1
+    assert out[0].product_id == "top"   # highest confidence kept, not first/last
