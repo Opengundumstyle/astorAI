@@ -70,6 +70,20 @@ def test_to_raw_maps_protocols_io_payload():
     assert raw.version == "2"
 
 
+def test_nul_bytes_are_stripped_from_text():
+    """protocols.io Draft.js prose occasionally embeds NUL (U+0000), which Postgres
+    cannot store in text/JSONB — it must be stripped at the mapping boundary or the
+    whole insert fails with 'unsupported Unicode escape sequence \\u0000'."""
+    raw = ProtocolsIoSource().to_raw(_pio_payload(
+        title="Western\x00 blot",
+        steps=[{"step": _draft("Add \x00buffer to the lysate"), "section": ""}],
+        materials_text=_draft("TRIzol\x00 Reagent"),
+    ))
+    assert "\x00" not in raw.title
+    assert all("\x00" not in s.text for s in raw.steps)
+    assert all("\x00" not in m.name for m in raw.materials)
+
+
 def test_doi_is_normalized_to_bare_identifier():
     """The resolver host and the /vN suffix both break identity: the suffix would
     make every version of one protocol dedupe as a separate work."""

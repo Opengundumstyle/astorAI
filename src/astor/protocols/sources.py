@@ -52,6 +52,15 @@ def _license_of(raw: str | None) -> License:
     return _PIO_LICENSE.get(raw.strip().lower(), License.UNKNOWN)
 
 
+def _no_nul(text: str) -> str:
+    """Strip NUL (U+0000) bytes. protocols.io Draft.js prose occasionally embeds
+    them, and PostgreSQL cannot store NUL in text/JSONB — an unsanitized value
+    fails the whole insert with 'unsupported Unicode escape sequence \\u0000'.
+    Applied at every text-producing boundary so no downstream store or embed
+    call ever sees one."""
+    return text.replace("\x00", "") if text else text
+
+
 def _draftjs_text(value) -> str:
     """protocols.io stores step and materials prose as Draft.js state, JSON-encoded
     into a string — NOT as plain text. Flatten it to text.
@@ -69,21 +78,21 @@ def _draftjs_text(value) -> str:
             return ""
         stripped = value.strip()
         if not stripped.startswith("{"):
-            return stripped                       # plain text or HTML
+            return _no_nul(stripped)              # plain text or HTML
         try:
             blocks = json.loads(stripped).get("blocks")
         except (ValueError, AttributeError):
-            return stripped
+            return _no_nul(stripped)
     if not blocks:
         return ""
-    return "\n".join(
+    return _no_nul("\n".join(
         b["text"].strip() for b in blocks
         if isinstance(b, dict) and (b.get("text") or "").strip()
-    ).strip()
+    ).strip())
 
 
 def _strip_html(value: str | None) -> str:
-    return re.sub(r"<[^>]+>", " ", value or "").replace("&amp;", "&").strip()
+    return _no_nul(re.sub(r"<[^>]+>", " ", value or "").replace("&amp;", "&").strip())
 
 
 def _normalize_doi(value: str | None) -> str | None:
