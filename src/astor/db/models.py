@@ -198,6 +198,11 @@ class Protocol(Base, TimestampMixin):
     license: Mapped[str] = mapped_column(String(32), nullable=False)
     # Materialized licence-gate outcome: may this row's CONTENT be served?
     servable: Mapped[bool] = mapped_column(default=False, nullable=False, index=True)
+    # The contractual authorization that made an otherwise-unservable (UNKNOWN)
+    # record servable — recorded per row so serving is auditable at rest, not only
+    # in the ingest manifest. NULL = servable on its own permissive licence, or not
+    # servable at all. See migration 0004.
+    serving_basis: Mapped[str | None] = mapped_column(String(128))
 
     steps: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     materials: Mapped[list] = mapped_column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))

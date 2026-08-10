@@ -301,6 +301,43 @@ def test_apply_keeps_content_for_servable_license():
     assert [s["text"] for s in row.steps] == ["Lyse cells"]
 
 
+def test_apply_unknown_stays_link_out_without_serving_basis():
+    """The protocols.io default: no licence, no serving_basis → content stripped."""
+    row = Protocol()
+    assert persistence._apply(row, _raw(license=License.UNKNOWN)) is False
+    assert row.servable is False and row.serving_basis is None
+    assert row.steps == []
+
+
+def test_apply_serving_basis_makes_unknown_servable_and_stamps_it():
+    """A commercial licence authorizes serving UNKNOWN protocols.io content: the
+    row becomes servable, keeps its steps, and records WHY (the serving_basis)."""
+    row = Protocol()
+    servable = persistence._apply(
+        row, _raw(license=License.UNKNOWN), serving_basis="commercial-licence:pio-2026")
+    assert servable is True
+    assert row.servable is True
+    assert row.serving_basis == "commercial-licence:pio-2026"
+    assert [s["text"] for s in row.steps] == ["Lyse cells"]
+
+
+def test_apply_permissive_license_needs_no_basis_even_when_one_is_passed():
+    """A CC-BY row is servable on its own licence; the basis column stays NULL so
+    it crisply means 'why an UNKNOWN row is served', not 'which run wrote this'."""
+    row = Protocol()
+    persistence._apply(row, _raw(license=License.CC_BY), serving_basis="commercial-licence:pio-2026")
+    assert row.servable is True and row.serving_basis is None
+
+
+def test_apply_serving_basis_does_not_unlock_restricted_nc():
+    """serving_basis widens only UNKNOWN (the API's 'no label'), never a licence
+    that AFFIRMATIVELY forbids commercial serving like CC-BY-NC."""
+    row = Protocol()
+    servable = persistence._apply(
+        row, _raw(license=License.CC_BY_NC), serving_basis="commercial-licence:pio-2026")
+    assert servable is False and row.serving_basis is None and row.steps == []
+
+
 class _StubSession:
     """Stands in for a Session. `_find_existing` is patched out, so the SQL identity
     lookup is NOT covered here — that needs the compose Postgres (see note below)."""
@@ -358,6 +395,50 @@ def test_upsert_counts_gate_outcome_and_batch_dedupe(store):
     assert result.deduped_in_batch == 1
     assert result.written == 2
     assert (result.servable, result.link_out_only) == (1, 1)
+
+
+def test_upsert_threads_serving_basis_to_unknown_records(store):
+    """The whole point of the wiring: a protocols.io corpus (UNKNOWN licence) loaded
+    under a serving_basis lands servable-with-content, not stripped to link-out."""
+    _, _ = store
+    session = _StubSession()
+    result = persistence.upsert_protocols(
+        session,
+        [_raw(doi=None, source_id="p1", license=License.UNKNOWN)],
+        serving_basis="commercial-licence:pio-2026",
+    )
+    assert (result.servable, result.link_out_only) == (1, 0)
+    row = session.added[0]
+    assert row.servable is True and row.serving_basis == "commercial-licence:pio-2026"
+    assert [s["text"] for s in row.steps] == ["Lyse cells"]
+
+
+def test_upsert_without_serving_basis_leaves_unknown_link_out(store):
+    _, _ = store
+    session = _StubSession()
+    result = persistence.upsert_protocols(
+        session, [_raw(doi=None, source_id="p1", license=License.UNKNOWN)])
+    assert (result.servable, result.link_out_only) == (0, 1)
+    assert session.added[0].steps == []
+
+
+def test_map_from_store_recovers_peer_reviewed_from_search_pages(tmp_path):
+    """The DB loader's offline bridge: details give content, saved search pages give
+    peer_reviewed (absent from v4 detail payloads). map_from_store rejoins them."""
+    from astor.protocols.raw_store import RawStore
+    from astor.protocols import harvest
+
+    store = RawStore(tmp_path)
+    # A saved search page carrying the quality signal, and the matching detail.
+    store.write_search_page("western_blot", "western blot", 1,
+                            {"items": [{"id": 500, "version_id": 1, "peer_reviewed": True,
+                                        "stats": {"number_of_votes": 7}}]})
+    store.write_detail("500", "1", {"id": 500, "version_id": 1, "url": "https://p.io/500",
+                                    "title": "WB", "steps": [], "materials_text": ""})
+    raws = harvest.map_from_store(store)
+    assert len(raws) == 1
+    assert raws[0].source_id == "500"
+    assert raws[0].review.peer_reviewed is True  # recovered from the search page, not the detail
 
 
 # --------------------------------------------------------------------------- #

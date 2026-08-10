@@ -70,11 +70,9 @@ class HarvestManifest:
     errors: int = 0
 
 
-def map_gate_rank(
-    details: list[dict],
-    list_items_by_id: dict,
-    serving_basis: str | None,
-) -> tuple[list[RawProtocol], list[RawProtocol]]:
+def map_details(details: list[dict], list_items_by_id: dict) -> list[RawProtocol]:
+    """Map raw detail payloads → RawProtocol, threading each item's list-item so
+    `peer_reviewed` survives. One bad record is skipped, never fatal."""
     source = ProtocolsIoSource()
     raws: list[RawProtocol] = []
     for d in details:
@@ -84,6 +82,27 @@ def map_gate_rank(
         except Exception as exc:  # noqa: BLE001 — one bad record must not abort the run
             log.warning("map (to_raw) failed for %r: %s", d, exc)
             continue
+    return raws
+
+
+def map_from_store(store) -> list[RawProtocol]:
+    """Re-map a persisted corpus off disk → RawProtocol, with peer_reviewed
+    recovered from the saved search pages. This is the offline bridge from the raw
+    JSON cache to the DB loader — no network, so a licensed sweep and the DB load
+    are cleanly separable steps.
+    """
+    list_items_by_id = {
+        it["id"]: it for it in store.iter_search_items() if it.get("id") is not None
+    }
+    return map_details(list(store.iter_details()), list_items_by_id)
+
+
+def map_gate_rank(
+    details: list[dict],
+    list_items_by_id: dict,
+    serving_basis: str | None,
+) -> tuple[list[RawProtocol], list[RawProtocol]]:
+    raws = map_details(details, list_items_by_id)
     allow = DEFAULT_SERVE_LICENSES
     if serving_basis:
         # The licence lives in the CONTRACT, not the payload: an authorised run

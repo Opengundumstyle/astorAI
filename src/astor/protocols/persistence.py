@@ -21,7 +21,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from astor.db.models import Protocol
-from astor.protocols.schemas import RawProtocol
+from astor.protocols.filtering import DEFAULT_SERVE_LICENSES
+from astor.protocols.schemas import License, RawProtocol
 
 log = logging.getLogger(__name__)
 
@@ -94,9 +95,28 @@ def _find_existing(session: Session, p: RawProtocol) -> Protocol | None:
     )
 
 
-def _apply(row: Protocol, p: RawProtocol) -> bool:
-    """Copy a RawProtocol onto a row, applying the licence gate. Returns servable."""
-    servable = p.license.redistributable
+def _apply(
+    row: Protocol,
+    p: RawProtocol,
+    *,
+    serving_basis: str | None = None,
+    serve_licenses: frozenset[License] = DEFAULT_SERVE_LICENSES,
+) -> bool:
+    """Copy a RawProtocol onto a row, applying the licence gate. Returns servable.
+
+    `serving_basis` is a contractual authorization (e.g. a commercial data licence
+    reference). When set, records the API cannot licence-label — protocols.io maps
+    them to UNKNOWN — become servable, because the right to serve them comes from
+    the CONTRACT, not the payload. The basis is stamped on the row for audit. A
+    record servable on its own permissive licence gets no basis (NULL): its licence
+    is the authorization, no contract needed. The module default (serving_basis
+    None) is unchanged and fails closed.
+    """
+    allow = serve_licenses | ({License.UNKNOWN} if serving_basis else frozenset())
+    servable = p.license in allow
+    # Stamp the basis only when it is what AUTHORIZED an otherwise-unservable row,
+    # so the column crisply means "why this UNKNOWN row is served".
+    authorized_by_contract = servable and p.license not in serve_licenses
 
     row.source = p.source
     row.source_id = p.source_id
@@ -107,20 +127,32 @@ def _apply(row: Protocol, p: RawProtocol) -> bool:
     row.version = p.version
     row.license = p.license.value
     row.servable = servable
+    row.serving_basis = serving_basis if authorized_by_contract else None
     row.review = p.review.model_dump()
     row.rank_score = p.review.rank_score
     row.fetched_at = _parse_fetched_at(p.fetched_at)
 
     # The gate, at rest: attribution is always kept so the protocol stays citable
-    # and link-outable, but CONTENT is written only under a redistributable licence.
+    # and link-outable, but CONTENT is written only when the row is servable.
     row.steps = [s.model_dump() for s in p.steps] if servable else []
     row.materials = [m.model_dump() for m in p.materials] if servable else []
 
     return servable
 
 
-def upsert_protocols(session: Session, protocols: Iterable[RawProtocol]) -> UpsertResult:
+def upsert_protocols(
+    session: Session,
+    protocols: Iterable[RawProtocol],
+    *,
+    serving_basis: str | None = None,
+    serve_licenses: frozenset[License] = DEFAULT_SERVE_LICENSES,
+) -> UpsertResult:
     """Upsert a batch. Safe to re-run: identical input produces zero net change.
+
+    `serving_basis`, when set, authorizes serving UNKNOWN-licence records (see
+    `_apply`) — this is how a protocols.io corpus pulled under a commercial licence
+    becomes servable in the DB rather than stripped to link-out. Default is None:
+    fail closed, exactly as before.
 
     Flushes once per row so that a duplicate inside the batch surfaces as an
     update to the row just written rather than a unique-violation at commit.
@@ -137,7 +169,7 @@ def upsert_protocols(session: Session, protocols: Iterable[RawProtocol]) -> Upse
         else:
             result.updated += 1
 
-        if _apply(row, p):
+        if _apply(row, p, serving_basis=serving_basis, serve_licenses=serve_licenses):
             result.servable += 1
         else:
             result.link_out_only += 1

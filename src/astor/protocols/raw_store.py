@@ -54,3 +54,19 @@ class RawStore:
             return
         for path in sorted(details.glob("*.json")):
             yield json.loads(path.read_text(encoding="utf-8"))
+
+    def iter_search_items(self) -> Iterator[dict]:
+        """Every list item from every saved search page, across all categories.
+
+        The v3 list item carries `peer_reviewed` (the v4 detail payload does not),
+        so an offline re-map from disk needs these to recover the quality signal —
+        otherwise a corpus loaded from cache silently loses peer-review ranking.
+        """
+        searches = self.root / "searches"
+        if not searches.exists():
+            return
+        for path in sorted(searches.glob("*/*.json")):
+            body = json.loads(path.read_text(encoding="utf-8"))
+            for item in (body.get("items") or []):
+                if isinstance(item, dict):
+                    yield item
