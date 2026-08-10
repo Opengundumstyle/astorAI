@@ -237,6 +237,38 @@ class Protocol(Base, TimestampMixin):
     )
 
 
+class ProtocolMaterialLink(Base, TimestampMixin):
+    """A confident link from one protocol material line to an Astor product SKU.
+
+    Bidirectional by construction: both FK columns are indexed, so "products used
+    in protocol X" and "protocols using product Y" are index scans. `material_name`
+    is part of the identity because distinct lines may resolve to the same product
+    and each carries its own provenance.
+    """
+
+    __tablename__ = "protocol_material_links"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    protocol_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("protocols.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    material_name: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)      # exact | substitute
+    method: Mapped[str] = mapped_column(String(32), nullable=False)    # catalog | vector+rules
+    reviewed: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("protocol_id", "product_id", "material_name",
+                         name="uq_protocol_material_link"),
+        CheckConstraint("kind in ('exact','substitute')",
+                        name="ck_protocol_material_link_kind"),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Transaction spine (present now so the schema is whole; filled in M4)
 # --------------------------------------------------------------------------- #
