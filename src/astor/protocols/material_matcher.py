@@ -12,11 +12,12 @@ import logging
 from dataclasses import dataclass
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 
 from astor.catalog import scoring
 from astor.catalog.embeddings import Embedder, get_embedder
 from astor.config import settings
-from astor.db.models import Product
+from astor.db.models import Product, ProtocolMaterialLink
 
 log = logging.getLogger(__name__)
 
@@ -106,3 +107,21 @@ def match_protocol_materials(
             matches.append(best)
 
     return matches
+
+
+def persist_links(session, protocol_id, matches: list[MaterialMatch]) -> int:
+    """Idempotent upsert of links for one protocol. Returns the number written."""
+    for mm_ in matches:
+        session.execute(
+            insert(ProtocolMaterialLink)
+            .values(
+                protocol_id=protocol_id, product_id=mm_.product_id,
+                material_name=mm_.material_name, confidence=mm_.confidence,
+                kind=mm_.kind, method=mm_.method, reviewed=False,
+            )
+            .on_conflict_do_update(
+                constraint="uq_protocol_material_link",
+                set_={"confidence": mm_.confidence, "kind": mm_.kind, "method": mm_.method},
+            )
+        )
+    return len(matches)

@@ -106,3 +106,15 @@ def test_semantic_keeps_highest_of_multiple_confident():
                                       ann_candidates=lambda s, v, n: cands)
     assert len(out) == 1
     assert out[0].product_id == "top"   # highest confidence kept, not first/last
+
+def test_persist_links_upserts_each_match():
+    executed = []
+    class _Session:
+        def execute(self, stmt): executed.append(stmt)
+    matches = [
+        mm.MaterialMatch("prod-1", "TRIzol", 0.95, "exact", "vector+rules"),
+        mm.MaterialMatch("prod-2", "tubes", 0.83, "substitute", "vector+rules"),
+    ]
+    n = mm.persist_links(_Session(), "proto-1", matches)
+    assert n == 2
+    assert len(executed) == 2   # one upsert statement per match
