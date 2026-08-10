@@ -18,7 +18,7 @@ depends_on = None
 def upgrade() -> None:
     op.create_table(
         "protocol_material_links",
-        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("id", sa.Uuid(), primary_key=True, server_default=sa.text("gen_random_uuid()")),
         sa.Column("protocol_id", sa.Uuid(), nullable=False),
         sa.Column("product_id", sa.Uuid(), nullable=False),
         sa.Column("material_name", sa.Text(), nullable=False),
