@@ -17,10 +17,19 @@ from pathlib import Path
 # "sandwich ELISA", "cell culture transfection" etc. all returned 0. Keep terms
 # short; we re-rank by review downstream so broad terms are fine.
 SEED_SYNONYMS: dict[str, list[str]] = {
+    # Launch four (verified against live counts, 2026-08-09).
     "western_blot": ["western blot", "immunoblot"],
     "rt_qpcr": ["rt-qpcr", "qpcr", "real-time PCR"],
     "elisa": ["elisa"],
     "cell_culture_transfection": ["transfection", "cell culture"],
+    # Coverage expansion (2026-08-10), sized to the live product distribution:
+    # 9,207 recombinant proteins + inhibitors dominate the catalog. Terms kept
+    # short (2 words max) because the v3 key search returns ~0 for longer phrases.
+    "protein_purification": ["protein purification", "affinity purification", "affinity chromatography"],
+    "immunoprecipitation": ["immunoprecipitation", "co-immunoprecipitation", "chromatin immunoprecipitation"],
+    "enzyme_inhibitor_assay": ["enzyme assay", "enzyme activity", "kinase assay"],
+    "nucleic_acid_extraction": ["DNA extraction", "RNA extraction", "plasmid extraction"],
+    "cloning_protein_expression": ["molecular cloning", "protein expression", "gibson assembly"],
 }
 
 
