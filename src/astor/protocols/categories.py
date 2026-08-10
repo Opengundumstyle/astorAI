@@ -10,11 +10,17 @@ import csv as _csv
 from dataclasses import dataclass
 from pathlib import Path
 
+# VERIFIED 2026-08-09 against live v3 total_results: the API's `key` search matches
+# SHORT terms well and returns ~0 for long multi-word phrases. Counts observed:
+# "western blot"=223, "immunoblot"=43, "elisa"=427, "transfection"=201,
+# "cell culture"=366, "rt-qpcr"=17 — while "quantitative real-time PCR",
+# "sandwich ELISA", "cell culture transfection" etc. all returned 0. Keep terms
+# short; we re-rank by review downstream so broad terms are fine.
 SEED_SYNONYMS: dict[str, list[str]] = {
-    "western_blot": ["western blot", "immunoblot", "protein immunoblotting"],
-    "rt_qpcr": ["RT-qPCR", "quantitative real-time PCR", "real-time reverse transcription PCR"],
-    "elisa": ["ELISA", "enzyme-linked immunosorbent assay", "sandwich ELISA"],
-    "cell_culture_transfection": ["cell culture transfection", "mammalian transfection", "lipofection"],
+    "western_blot": ["western blot", "immunoblot"],
+    "rt_qpcr": ["rt-qpcr", "qpcr", "real-time PCR"],
+    "elisa": ["elisa"],
+    "cell_culture_transfection": ["transfection", "cell culture"],
 }
 
 

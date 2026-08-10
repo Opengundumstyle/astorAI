@@ -157,10 +157,17 @@ class ProtocolsIoSource:
         return [it for it in (items or []) if isinstance(it, dict)]
 
     @staticmethod
-    def _next_page(body: dict) -> int | None:
+    def _total_pages(body: dict) -> int:
+        """Total pages for the query, from the pagination block.
+
+        VERIFIED 2026-08-09 against the live v3 endpoint: `next_page` is a full
+        URL STRING (not an int), and `current_page` is off by one on the request
+        we send — so neither is safe to drive the loop with. `total_pages` is the
+        reliable signal; we page an integer counter 1..total_pages ourselves.
+        """
         pg = body.get("pagination") or {}
-        nxt = pg.get("next_page")
-        return nxt if isinstance(nxt, int) and nxt > 0 else None
+        tp = pg.get("total_pages")
+        return tp if isinstance(tp, int) and tp > 0 else 1
 
     def _require_network(self, allow_network: bool) -> None:
         """Both locks. Bulk search/fetch stays off until a licence is confirmed AND
@@ -229,10 +236,12 @@ class ProtocolsIoSource:
                 if not items:
                     break
                 out.extend(items)
-                nxt = self._next_page(body)
-                if nxt is None or nxt == page:
+                # Drive pagination by an integer counter against total_pages —
+                # `next_page` is a URL string and `current_page` is unreliable
+                # (see _total_pages). A short page is also a terminal signal.
+                if page >= self._total_pages(body) or len(items) < page_size:
                     break
-                page = nxt
+                page += 1
                 if sleep_between:
                     time.sleep(sleep_between)
         finally:

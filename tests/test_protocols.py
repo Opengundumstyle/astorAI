@@ -445,8 +445,14 @@ def test_licensed_flag_defaults_false():
 # --------------------------------------------------------------------------- #
 # Task 2: ProtocolsIoSource.search() — offline mapping of a v3 list page
 # --------------------------------------------------------------------------- #
-def _v3_list_body(items, next_page=None):
-    return {"items": items, "pagination": {"next_page": next_page, "total_pages": 3}}
+def _v3_list_body(items, total_pages=1):
+    # Mirrors the live v3 shape: next_page is a URL STRING (the loop ignores it and
+    # drives pagination by total_pages instead — see ProtocolsIoSource._total_pages).
+    return {"items": items, "pagination": {
+        "total_pages": total_pages,
+        "next_page": "https://www.protocols.io/api/v3/protocols?page_id=2",
+        "current_page": 2,
+    }}
 
 
 def test_list_items_extracts_item_array():
@@ -460,10 +466,13 @@ def test_list_items_falls_back_to_protocols_key():
     assert src._list_items({"protocols": [{"id": 9}]}) == [{"id": 9}]
 
 
-def test_next_page_reads_pagination():
+def test_total_pages_reads_pagination_and_defaults_to_one():
     src = ProtocolsIoSource()
-    assert src._next_page(_v3_list_body([], next_page=2)) == 2
-    assert src._next_page(_v3_list_body([], next_page=None)) is None
+    assert src._total_pages(_v3_list_body([], total_pages=9)) == 9
+    # A URL-string next_page must NOT be mistaken for a page count; absent/invalid
+    # total_pages falls back to 1 (single page) rather than looping forever.
+    assert src._total_pages({"pagination": {"next_page": "http://x/page_id=2"}}) == 1
+    assert src._total_pages({}) == 1
 
 
 def test_search_is_double_locked():
@@ -508,20 +517,35 @@ class _FakeClient:
         self.calls.append(params)
         return _FakeResp(self._pages.pop(0))
 
-def test_search_network_paginates_until_next_page_none():
+def test_search_network_paginates_across_pages_until_total_pages():
+    """Full page + total_pages>1 must advance to page 2; a short final page ends
+    it. Drives on total_pages, since live next_page is a URL string."""
     src = ProtocolsIoSource()
     pages = [
-        {"items": [{"id": 1}, {"id": 2}], "pagination": {"next_page": 2}},
-        {"items": [{"id": 3}], "pagination": {"next_page": None}},
+        {"items": [{"id": 1}, {"id": 2}],
+         "pagination": {"total_pages": 2, "next_page": "http://x/page_id=2"}},
+        {"items": [{"id": 3}],
+         "pagination": {"total_pages": 2, "next_page": None}},
     ]
     client = _FakeClient(pages)
-    items = src._search_network("western blot", limit=100, page_size=50,
+    items = src._search_network("western blot", limit=100, page_size=2,
                                 peer_reviewed_only=False, client=client, sleep_between=0)
     assert [it["id"] for it in items] == [1, 2, 3]
+    assert [c["page_id"] for c in client.calls] == [1, 2]  # advanced by integer counter
+
+def test_search_network_stops_on_single_page():
+    """total_pages=1 must not attempt a second request (would IndexError the fake)."""
+    src = ProtocolsIoSource()
+    client = _FakeClient([{"items": [{"id": 1}], "pagination": {"total_pages": 1}}])
+    items = src._search_network("x", limit=100, page_size=50,
+                                peer_reviewed_only=False, client=client, sleep_between=0)
+    assert [it["id"] for it in items] == [1]
+    assert len(client.calls) == 1
 
 def test_search_network_respects_limit():
     src = ProtocolsIoSource()
-    pages = [{"items": [{"id": i} for i in range(50)], "pagination": {"next_page": 2}}]
+    pages = [{"items": [{"id": i} for i in range(50)],
+              "pagination": {"total_pages": 5}}]
     client = _FakeClient(pages)
     items = src._search_network("x", limit=10, page_size=50,
                                 peer_reviewed_only=False, client=client, sleep_between=0)
@@ -529,7 +553,7 @@ def test_search_network_respects_limit():
 
 def test_search_network_passes_peer_reviewed_filter():
     src = ProtocolsIoSource()
-    client = _FakeClient([{"items": [], "pagination": {"next_page": None}}])
+    client = _FakeClient([{"items": [], "pagination": {"total_pages": 1}}])
     src._search_network("x", limit=10, page_size=50,
                         peer_reviewed_only=True, client=client, sleep_between=0)
     assert client.calls[0].get("peer_reviewed") == 1
