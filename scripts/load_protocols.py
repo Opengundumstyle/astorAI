@@ -21,7 +21,7 @@ import argparse
 from collections import Counter
 
 from astor.db.base import session_scope
-from astor.protocols import harvest, persistence
+from astor.protocols import extraction, harvest, persistence
 from astor.protocols.raw_store import RawStore
 
 
@@ -32,6 +32,10 @@ def main() -> None:
     ap.add_argument("--serving-basis", default=None,
                     help="commercial-licence reference; without it protocols.io content "
                          "stays link-out (UNKNOWN licence fails closed)")
+    ap.add_argument("--extract-materials", action="store_true",
+                    help="run the material extractor (LLM for free-text lists — needs "
+                         "ANTHROPIC_API_KEY and costs one call per free-text protocol) "
+                         "before persisting, so stored materials are procurement-ready")
     ap.add_argument("--dry-run", action="store_true",
                     help="map + report servable/link-out counts, no DB writes")
     args = ap.parse_args()
@@ -41,6 +45,11 @@ def main() -> None:
     print(f"mapped {len(raws)} protocols from {args.corpus}")
     lic = Counter(p.license.value for p in raws)
     print("  licences:", dict(lic))
+
+    if args.extract_materials:
+        raws, estats = extraction.enrich_materials(raws)
+        print(f"  materials extracted: in={estats.materials_in} → out={estats.materials_out} "
+              f"(purchasable), llm_calls={estats.llm_calls}, errors={estats.errors}")
 
     if args.dry_run:
         # Preview the gate outcome without writing.

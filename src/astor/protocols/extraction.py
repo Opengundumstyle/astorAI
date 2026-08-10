@@ -24,13 +24,14 @@ FACTS ONLY (§10, PI-5)
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from enum import Enum
 from typing import Protocol
 
 from pydantic import BaseModel, Field
 
 from astor.config import settings
-from astor.protocols.schemas import RawProtocol
+from astor.protocols.schemas import RawMaterial, RawProtocol
 
 log = logging.getLogger(__name__)
 
@@ -219,3 +220,60 @@ def procurement_filter(
         m for m in materials
         if m.role.purchasable and m.confidence >= min_confidence
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Corpus enrichment — the batch stage that wires extraction over a whole corpus
+# --------------------------------------------------------------------------- #
+@dataclass
+class EnrichStats:
+    protocols: int = 0
+    materials_in: int = 0
+    materials_out: int = 0        # purchasable lines kept
+    llm_calls: int = 0
+    errors: int = 0
+
+
+def enrich_materials(
+    raws: list[RawProtocol],
+    *,
+    extractor_for=for_protocol,
+    min_confidence: float = 0.5,
+) -> tuple[list[RawProtocol], EnrichStats]:
+    """Replace each protocol's raw materials with procurement-ready ones.
+
+    For every protocol: classify its materials (structured pass-through when the
+    source already gives vendor/catalogue, LLM classifier for free text), drop the
+    non-orderable lines (headers, buffer components, equipment, low-confidence), and
+    write the survivors back as `RawMaterial`. The result feeds `upsert_protocols`
+    exactly like un-enriched raws — nothing downstream can tell extraction ran.
+
+    `extractor_for` is injectable so tests drive it with a fake and the real LLM
+    batch is opt-in. One protocol's extraction failure is logged and skipped (its
+    materials are left as-is), never fatal to the batch.
+    """
+    stats = EnrichStats()
+    for raw in raws:
+        stats.protocols += 1
+        stats.materials_in += len(raw.materials)
+        extractor = extractor_for(raw)
+        if isinstance(extractor, LLMMaterialExtractor):
+            stats.llm_calls += 1
+        try:
+            kept = procurement_filter(extractor.extract(raw), min_confidence)
+        except Exception as exc:  # noqa: BLE001 — one bad protocol must not abort the batch
+            stats.errors += 1
+            log.warning("material extraction failed for %s/%s: %s",
+                        raw.source, raw.source_id, exc)
+            continue
+        raw.materials = [
+            RawMaterial(name=m.name, amount=m.amount, vendor=m.vendor, catalog_no=m.catalog_no)
+            for m in kept
+        ]
+        stats.materials_out += len(raw.materials)
+    log.info(
+        "material enrichment: protocols=%d in=%d out=%d llm_calls=%d errors=%d",
+        stats.protocols, stats.materials_in, stats.materials_out,
+        stats.llm_calls, stats.errors,
+    )
+    return raws, stats

@@ -72,6 +72,42 @@ def test_procurement_filter_drops_low_confidence_lines():
 
 
 # --------------------------------------------------------------------------- #
+# Corpus enrichment (batch wiring)
+# --------------------------------------------------------------------------- #
+class _FakeExtractor:
+    """Classifies by name — no LLM. Header lines → not_a_material, else reagent."""
+    def extract(self, raw):
+        out = []
+        for m in raw.materials:
+            role = MaterialRole.NOT_A_MATERIAL if m.name.endswith(":") else MaterialRole.REAGENT
+            out.append(ExtractedMaterial(name=m.name, role=role, confidence=1.0))
+        return out
+
+
+def test_enrich_materials_replaces_with_purchasable_only():
+    raws = [_raw([RawMaterial(name="Buffer:"), RawMaterial(name="TRIzol Reagent")])]
+    out, stats = extraction.enrich_materials(raws, extractor_for=lambda r: _FakeExtractor())
+    assert [m.name for m in out[0].materials] == ["TRIzol Reagent"]  # header dropped
+    assert (stats.protocols, stats.materials_in, stats.materials_out) == (1, 2, 1)
+    assert stats.llm_calls == 0  # injected fake is not an LLMMaterialExtractor
+
+
+def test_enrich_materials_isolates_one_failure():
+    """A protocol whose extractor raises is skipped (materials left as-is), not fatal."""
+    class _Boom:
+        def extract(self, raw):
+            raise RuntimeError("model unavailable")
+
+    good = _raw([RawMaterial(name="TRIzol Reagent")], source_id="ok")
+    bad = _raw([RawMaterial(name="X")], source_id="boom")
+    picker = lambda r: _Boom() if r.source_id == "boom" else _FakeExtractor()
+    out, stats = extraction.enrich_materials([good, bad], extractor_for=picker)
+    assert stats.errors == 1
+    assert [m.name for m in out[0].materials] == ["TRIzol Reagent"]  # good one enriched
+    assert [m.name for m in out[1].materials] == ["X"]               # bad one untouched
+
+
+# --------------------------------------------------------------------------- #
 # Extractor selection
 # --------------------------------------------------------------------------- #
 def test_structured_source_skips_the_llm_entirely():
