@@ -79,6 +79,19 @@ def test_material_view_maps_vendor_and_catalog_to_brand_mpn():
     v = mm._material_view("X", "Acme", "W-1")
     assert v.brand == "Acme" and v.mpn == "W-1"
 
+def test_semantic_uses_material_thresholds_not_product(monkeypatch):
+    """A material-name→product similarity of 0.75 is below the product substitute
+    threshold (0.80) but above the material one (0.70), so it must classify as a
+    substitute — proving the matcher keys on the material-specific thresholds."""
+    from astor.config import settings
+    monkeypatch.setattr(settings, "material_substitute_threshold", 0.70)
+    monkeypatch.setattr(settings, "material_exact_threshold", 0.82)
+    p = _protocol([{"name": "pipette tips"}])
+    cands = [(_prod("t", "Pipette Tip 200ul"), 0.25)]   # sim 0.75, no attribute bonus
+    out = mm.match_protocol_materials(None, p, _Emb(), exact_lookup=lambda *a: None,
+                                      ann_candidates=lambda s, v, n: cands)
+    assert len(out) == 1 and out[0].kind == "substitute"
+
 def test_embed_failure_on_one_material_is_isolated():
     class _Boom:
         def __init__(self): self.calls = 0

@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     equiv_substitute_threshold: float = 0.80
     equiv_candidates: int = 20
 
+    # Material→product matching runs a different comparison than product↔product:
+    # a bare material name vs a product's rich canonical text has a lower similarity
+    # ceiling (good matches observed ~0.71–0.77), so the equiv_* thresholds never
+    # fire. These material-specific thresholds are tuned against extracted (clean)
+    # materials. Override in .env to retune without a code change.
+    material_exact_threshold: float = 0.82
+    material_substitute_threshold: float = 0.70
+
     log_level: str = "INFO"
 
 

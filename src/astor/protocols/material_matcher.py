@@ -98,7 +98,7 @@ def match_protocol_materials(
         for cand, dist in ann_candidates(session, vec, settings.equiv_candidates):
             conf = scoring.confidence(1.0 - dist, mview, _view(cand))
             kind = scoring.classify(
-                conf, settings.equiv_exact_threshold, settings.equiv_substitute_threshold)
+                conf, settings.material_exact_threshold, settings.material_substitute_threshold)
             if kind is None:
                 continue
             if best is None or conf > best.confidence:
