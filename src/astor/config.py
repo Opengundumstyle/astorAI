@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     # fire. These material-specific thresholds are tuned against extracted (clean)
     # materials. Override in .env to retune without a code change.
     material_exact_threshold: float = 0.82
-    material_substitute_threshold: float = 0.70
+    material_substitute_threshold: float = 0.75
 
     log_level: str = "INFO"
 
