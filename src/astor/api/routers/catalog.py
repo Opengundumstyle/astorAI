@@ -43,6 +43,26 @@ def product_detail(
     return roles.gate_detail(detail, role)
 
 
+@router.get("/products/{product_id}/protocols")
+def product_protocols(
+    product_id: str,
+    reviewed_only: bool = False,
+    limit: int = Query(50, ge=1, le=200),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Protocols that use this product (reverse of the material→SKU links)."""
+    result = repo.product_protocols(
+        session, product_id, reviewed_only=reviewed_only, limit=limit)
+    if result is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    return {
+        "product_id": product_id,
+        "product_name": result["product_name"],
+        "count": len(result["protocols"]),
+        "protocols": result["protocols"],
+    }
+
+
 _ALLOWED_SUFFIXES = {".csv", ".tsv", ".xlsx", ".xlsm"}
 
 

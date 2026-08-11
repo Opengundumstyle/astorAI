@@ -14,7 +14,14 @@ from astor.api import schemas
 from astor.catalog import matcher
 from astor.catalog.embeddings import get_embedder
 from astor.catalog.ingestion import ingest
-from astor.db.models import Equivalence, Product, Supplier, SupplierOffer
+from astor.db.models import (
+    Equivalence,
+    Product,
+    Protocol,
+    ProtocolMaterialLink,
+    Supplier,
+    SupplierOffer,
+)
 from astor.pricing.landed_cost import landed_cost
 
 
@@ -121,6 +128,43 @@ def landed_for_product(session, product_id: str, qty: int) -> dict | None:
         return None
     return landed_cost(supplier_cost=float(offer.cost), currency=offer.currency,
                        category=product.category, qty=qty)
+
+
+def product_protocols(
+    session, product_id: str, *, reviewed_only: bool = False, limit: int = 50
+) -> dict | None:
+    """Protocols that use a product, via the material→SKU links, best match first.
+
+    Returns None when the product id does not exist (so the router can 404), and a
+    payload with an empty list when the product exists but has no linked protocols.
+    `reviewed_only` honors the human-review gate (§9.11) — the customer-facing
+    caller sets it True so only vetted links surface.
+    """
+    product = session.get(Product, product_id)
+    if product is None:
+        return None
+    conds = [ProtocolMaterialLink.product_id == product_id]
+    if reviewed_only:
+        conds.append(ProtocolMaterialLink.reviewed.is_(True))
+    rows = session.execute(
+        select(
+            Protocol.title, Protocol.source_uri,
+            ProtocolMaterialLink.material_name,
+            ProtocolMaterialLink.confidence, ProtocolMaterialLink.kind,
+        )
+        .join(Protocol, Protocol.id == ProtocolMaterialLink.protocol_id)
+        .where(*conds)
+        .order_by(ProtocolMaterialLink.confidence.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "product_name": product.name,
+        "protocols": [
+            {"title": t, "source_uri": u, "material_name": m,
+             "confidence": round(float(c), 4), "kind": k}
+            for t, u, m, c, k in rows
+        ],
+    }
 
 
 def run_ingest(session, path: Path, supplier: str, region: str, tier: str,
