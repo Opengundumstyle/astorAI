@@ -1,6 +1,8 @@
 import type {
+  ChatItem,
   ChatMessage,
   ChatResponse,
+  ChatStreamHandlers,
   IngestResult,
   LandedCost,
   ProductDetail,
@@ -79,5 +81,43 @@ export const api = {
       throw new Error(b.detail ?? `Chat failed: ${res.status}`);
     }
     return res.json() as Promise<ChatResponse>;
+  },
+
+  sendChatStream: async (messages: ChatMessage[], h: ChatStreamHandlers): Promise<void> => {
+    const res = await fetch(`${BASE}/api/chat/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+    if (!res.ok || !res.body) {
+      const b = await res.json().catch(() => ({}));
+      h.onError?.(b.detail ?? `Chat failed: ${res.status}`);
+      return;
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+        if (!line) continue;
+        let ev: { type: string; text?: string; items?: ChatItem[]; detail?: string };
+        try {
+          ev = JSON.parse(line.slice(5).trim());
+        } catch {
+          continue;
+        }
+        if (ev.type === "delta" && ev.text != null) h.onDelta(ev.text);
+        else if (ev.type === "status" && ev.text != null) h.onStatus?.(ev.text);
+        else if (ev.type === "items" && ev.items != null) h.onItems?.(ev.items);
+        else if (ev.type === "error") h.onError?.(ev.detail ?? "Something went wrong.");
+      }
+    }
   },
 };

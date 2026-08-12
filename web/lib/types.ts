@@ -144,3 +144,10 @@ export interface ChatResponse {
   reply: string;
   items: ChatItem[];
 }
+
+export interface ChatStreamHandlers {
+  onStatus?: (text: string) => void;
+  onDelta: (text: string) => void;
+  onItems?: (items: ChatItem[]) => void;
+  onError?: (detail: string) => void;
+}

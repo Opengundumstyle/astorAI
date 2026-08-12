@@ -9,6 +9,8 @@ interface Turn {
   role: "user" | "assistant";
   content: string;
   items?: ChatItem[];
+  status?: string;
+  streaming?: boolean;
   error?: boolean;
 }
 
@@ -23,6 +25,14 @@ export function ChatPanel() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
 
+  function patchLast(fn: (t: Turn) => Turn) {
+    setTurns((ts) => {
+      const copy = [...ts];
+      copy[copy.length - 1] = fn(copy[copy.length - 1]);
+      return copy;
+    });
+  }
+
   async function send(text: string) {
     const q = text.trim();
     if (!q || busy) return;
@@ -30,16 +40,26 @@ export function ChatPanel() {
       ...turns.filter((t) => !t.error).map((t) => ({ role: t.role, content: t.content })),
       { role: "user", content: q },
     ];
-    setTurns((t) => [...t, { role: "user", content: q }]);
+    setTurns((t) => [
+      ...t,
+      { role: "user", content: q },
+      { role: "assistant", content: "", streaming: true },
+    ]);
     setInput("");
     setBusy(true);
     try {
-      const res = await api.sendChat(history);
-      setTurns((t) => [...t, { role: "assistant", content: res.reply, items: res.items }]);
+      await api.sendChatStream(history, {
+        onStatus: (s) => patchLast((x) => ({ ...x, status: s })),
+        onDelta: (d) => patchLast((x) => ({ ...x, content: x.content + d, status: undefined })),
+        onItems: (items) => patchLast((x) => ({ ...x, items })),
+        onError: (detail) =>
+          patchLast((x) => ({ ...x, content: x.content || detail, error: true, status: undefined })),
+      });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Something went wrong.";
-      setTurns((t) => [...t, { role: "assistant", content: msg, error: true }]);
+      patchLast((x) => ({ ...x, content: x.content || msg, error: true, status: undefined }));
     } finally {
+      patchLast((x) => ({ ...x, streaming: false, status: undefined }));
       setBusy(false);
     }
   }
@@ -64,16 +84,24 @@ export function ChatPanel() {
       <div className="flex flex-col gap-3">
         {turns.map((t, i) => (
           <div key={i} className={t.role === "user" ? "self-end" : "self-start"} style={{ maxWidth: "85%" }}>
-            <div
-              className="rounded-lg px-3 py-2 text-sm"
-              style={{
-                background: t.role === "user" ? "rgba(94,234,212,0.12)" : "var(--panel)",
-                border: "1px solid var(--border)",
-                color: t.error ? "#fca5a5" : "inherit",
-              }}
-            >
-              {t.content}
-            </div>
+            {t.role === "assistant" && !t.content && (t.status || t.streaming) && (
+              <div className="px-1 pb-1 text-xs" style={{ color: "var(--muted)" }}>
+                {t.status ?? "thinking…"}
+              </div>
+            )}
+            {t.content && (
+              <div
+                className="rounded-lg px-3 py-2 text-sm"
+                style={{
+                  background: t.role === "user" ? "rgba(94,234,212,0.12)" : "var(--panel)",
+                  border: "1px solid var(--border)",
+                  color: t.error ? "#fca5a5" : "inherit",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {t.content}
+              </div>
+            )}
             {t.items && t.items.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {t.items.map((it) => (
@@ -90,17 +118,9 @@ export function ChatPanel() {
             )}
           </div>
         ))}
-        {busy && (
-          <div className="self-start rounded-lg px-3 py-2 text-sm" style={{ color: "var(--muted)" }}>
-            thinking…
-          </div>
-        )}
       </div>
 
-      <form
-        onSubmit={(e) => { e.preventDefault(); send(input); }}
-        className="flex gap-2"
-      >
+      <form onSubmit={(e) => { e.preventDefault(); send(input); }} className="flex gap-2">
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
