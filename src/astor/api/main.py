@@ -6,7 +6,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from astor.api.routers import catalog, dashboard, pricing, protocols
+from astor.api.routers import catalog, chat, dashboard, pricing, protocols
 
 
 def create_app() -> FastAPI:
@@ -24,6 +24,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(catalog.router)
+    app.include_router(chat.router)
     app.include_router(dashboard.router)
     app.include_router(pricing.router)
     app.include_router(protocols.router)
