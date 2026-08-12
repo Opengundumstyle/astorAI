@@ -148,7 +148,7 @@ def product_protocols(
         conds.append(ProtocolMaterialLink.reviewed.is_(True))
     rows = session.execute(
         select(
-            Protocol.title, Protocol.source_uri,
+            Protocol.id, Protocol.title, Protocol.source_uri,
             ProtocolMaterialLink.material_name,
             ProtocolMaterialLink.confidence, ProtocolMaterialLink.kind,
         )
@@ -160,9 +160,9 @@ def product_protocols(
     return {
         "product_name": product.name,
         "protocols": [
-            {"title": t, "source_uri": u, "material_name": m,
+            {"protocol_id": str(pid), "title": t, "source_uri": u, "material_name": m,
              "confidence": round(float(c), 4), "kind": k}
-            for t, u, m, c, k in rows
+            for pid, t, u, m, c, k in rows
         ],
     }
 

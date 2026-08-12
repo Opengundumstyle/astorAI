@@ -11,10 +11,10 @@ from astor.api.main import create_app
 RESULT = {
     "product_name": "Bicinchoninic Acid (BCA) Protein Assay Kit",
     "protocols": [
-        {"title": "Western blotting to detect ATP13A2",
+        {"protocol_id": "proto-1", "title": "Western blotting to detect ATP13A2",
          "source_uri": "https://protocols.io/view/x",
          "material_name": "BCA assay kit (Pierce)", "confidence": 0.867, "kind": "exact"},
-        {"title": "Mild Immunoprecipitation with Low Background",
+        {"protocol_id": "proto-2", "title": "Mild Immunoprecipitation with Low Background",
          "source_uri": "https://protocols.io/view/y",
          "material_name": "Pierce BCA Protein Assay", "confidence": 0.81, "kind": "substitute"},
     ],

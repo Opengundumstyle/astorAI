@@ -2,7 +2,9 @@ import type {
   IngestResult,
   LandedCost,
   ProductDetail,
+  ProductProtocols,
   ProductsPage,
+  ProtocolMaterials,
   Role,
   Stats,
 } from "./types";
@@ -40,6 +42,12 @@ export const api = {
 
   getLandedCost: (id: string, qty: number, role: Role = "ops") =>
     get<LandedCost>(`/api/products/${id}/landed-cost?qty=${qty}&role=${role}`),
+
+  getProductProtocols: (id: string, limit = 50) =>
+    get<ProductProtocols>(`/api/products/${id}/protocols?limit=${limit}`),
+
+  getProtocolMaterials: (id: string, limit = 100) =>
+    get<ProtocolMaterials>(`/api/protocols/${id}/materials?limit=${limit}`),
 
   ingest: async (form: FormData): Promise<IngestResult> => {
     const res = await fetch(`${BASE}/api/ingest`, { method: "POST", body: form });

@@ -77,3 +77,38 @@ export interface ProductsPage {
   page: number;
   page_size: number;
 }
+
+// A protocol that uses a product (reverse) — rendered on the product page.
+export interface ProtocolLink {
+  protocol_id: string;
+  title: string;
+  source_uri: string;
+  material_name: string;
+  confidence: number;
+  kind: "exact" | "substitute";
+}
+
+export interface ProductProtocols {
+  product_id: string;
+  product_name: string;
+  count: number;
+  protocols: ProtocolLink[];
+}
+
+// A product a protocol needs (forward) — a line in the protocol's cart.
+export interface MaterialLink {
+  material_name: string;
+  product_id: string;
+  product_name: string;
+  brand?: string | null;
+  confidence: number;
+  kind: "exact" | "substitute";
+}
+
+export interface ProtocolMaterials {
+  protocol_id: string;
+  protocol_title: string;
+  source_uri: string;
+  count: number;
+  materials: MaterialLink[];
+}

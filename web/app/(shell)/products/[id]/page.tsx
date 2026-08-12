@@ -1,11 +1,15 @@
 import { EquivalentsPanel } from "@/components/EquivalentsPanel";
 import { LandedCostPanel } from "@/components/LandedCostPanel";
 import { OffersTable } from "@/components/OffersTable";
+import { ProtocolsUsingPanel } from "@/components/ProtocolsUsingPanel";
 import { api } from "@/lib/api";
 
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const product = await api.getProduct(id);
+  const [product, protocols] = await Promise.all([
+    api.getProduct(id),
+    api.getProductProtocols(id).catch(() => null),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -45,6 +49,18 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           <OffersTable offers={product.offers} />
         </section>
       )}
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-sm font-semibold">
+          Protocols that use this product
+          {protocols && protocols.count > 0 ? (
+            <span className="ml-2 text-xs font-normal" style={{ color: "var(--muted)" }}>
+              {protocols.count}
+            </span>
+          ) : null}
+        </h2>
+        <ProtocolsUsingPanel items={protocols?.protocols ?? []} />
+      </section>
     </div>
   );
 }
