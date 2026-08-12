@@ -167,6 +167,42 @@ def product_protocols(
     }
 
 
+def protocol_materials(
+    session, protocol_id: str, *, reviewed_only: bool = False, limit: int = 100
+) -> dict | None:
+    """A protocol's product shopping list, via the material→SKU links, best match
+    first. Returns None when the protocol id does not exist (so the router can 404);
+    an empty list when it exists but nothing linked. `reviewed_only` honors the
+    §9.11 human-review gate.
+    """
+    protocol = session.get(Protocol, protocol_id)
+    if protocol is None:
+        return None
+    conds = [ProtocolMaterialLink.protocol_id == protocol_id]
+    if reviewed_only:
+        conds.append(ProtocolMaterialLink.reviewed.is_(True))
+    rows = session.execute(
+        select(
+            ProtocolMaterialLink.material_name,
+            Product.id, Product.name, Product.brand,
+            ProtocolMaterialLink.confidence, ProtocolMaterialLink.kind,
+        )
+        .join(Product, Product.id == ProtocolMaterialLink.product_id)
+        .where(*conds)
+        .order_by(ProtocolMaterialLink.confidence.desc())
+        .limit(limit)
+    ).all()
+    return {
+        "protocol_title": protocol.title,
+        "source_uri": protocol.source_uri,
+        "materials": [
+            {"material_name": m, "product_id": str(pid), "product_name": pn,
+             "brand": brand, "confidence": round(float(c), 4), "kind": k}
+            for m, pid, pn, brand, c, k in rows
+        ],
+    }
+
+
 def run_ingest(session, path: Path, supplier: str, region: str, tier: str,
                run_match: bool) -> dict:
     result = ingest(session, path, supplier, region, tier)
