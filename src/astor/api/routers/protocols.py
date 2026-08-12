@@ -10,6 +10,18 @@ from astor.api.deps import get_session
 router = APIRouter(prefix="/api", tags=["protocols"])
 
 
+@router.get("/protocols")
+def list_protocols(
+    q: str | None = None,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Browse servable protocols, most catalog-connected first."""
+    items, total = repo.list_protocols(session, q, page, page_size)
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
 @router.get("/protocols/{protocol_id}/materials")
 def protocol_materials(
     protocol_id: str,

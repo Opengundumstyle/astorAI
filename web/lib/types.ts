@@ -78,6 +78,22 @@ export interface ProductsPage {
   page_size: number;
 }
 
+// Browse list of protocols.
+export interface ProtocolSummary {
+  id: string;
+  title: string;
+  source: string;
+  rank_score: number;
+  product_count: number;
+}
+
+export interface ProtocolsListPage {
+  items: ProtocolSummary[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 // A protocol that uses a product (reverse) — rendered on the product page.
 export interface ProtocolLink {
   protocol_id: string;

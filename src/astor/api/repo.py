@@ -167,6 +167,41 @@ def product_protocols(
     }
 
 
+def list_protocols(session, q: str | None, page: int, page_size: int):
+    """Servable protocols for the browse page, most catalog-connected first.
+
+    `product_count` is how many material→SKU links the protocol has, so protocols
+    with rich carts surface at the top; `rank_score` (the review ranking) breaks ties.
+    """
+    link_count = (
+        select(func.count(ProtocolMaterialLink.id))
+        .where(ProtocolMaterialLink.protocol_id == Protocol.id)
+        .correlate(Protocol)
+        .scalar_subquery()
+    )
+    base = select(
+        Protocol.id, Protocol.title, Protocol.source, Protocol.rank_score,
+        link_count.label("product_count"),
+    ).where(Protocol.servable.is_(True))
+    count_stmt = select(func.count(Protocol.id)).where(Protocol.servable.is_(True))
+    if q:
+        like = f"%{q}%"
+        base = base.where(Protocol.title.ilike(like))
+        count_stmt = count_stmt.where(Protocol.title.ilike(like))
+
+    total = session.scalar(count_stmt) or 0
+    rows = session.execute(
+        base.order_by(link_count.desc(), Protocol.rank_score.desc())
+        .offset((page - 1) * page_size).limit(page_size)
+    ).all()
+    items = [
+        {"id": str(i), "title": t, "source": s,
+         "rank_score": round(float(r), 2), "product_count": int(pc)}
+        for i, t, s, r, pc in rows
+    ]
+    return items, total
+
+
 def protocol_materials(
     session, protocol_id: str, *, reviewed_only: bool = False, limit: int = 100
 ) -> dict | None:

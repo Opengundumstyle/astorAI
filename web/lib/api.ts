@@ -5,6 +5,7 @@ import type {
   ProductProtocols,
   ProductsPage,
   ProtocolMaterials,
+  ProtocolsListPage,
   Role,
   Stats,
 } from "./types";
@@ -42,6 +43,13 @@ export const api = {
 
   getLandedCost: (id: string, qty: number, role: Role = "ops") =>
     get<LandedCost>(`/api/products/${id}/landed-cost?qty=${qty}&role=${role}`),
+
+  listProtocols: (opts: { q?: string; page?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (opts.q) p.set("q", opts.q);
+    p.set("page", String(opts.page ?? 1));
+    return get<ProtocolsListPage>(`/api/protocols?${p.toString()}`);
+  },
 
   getProductProtocols: (id: string, limit = 50) =>
     get<ProductProtocols>(`/api/products/${id}/protocols?limit=${limit}`),

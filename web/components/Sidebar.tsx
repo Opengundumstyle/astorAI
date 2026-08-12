@@ -8,6 +8,7 @@ import type { Role } from "@/lib/types";
 const NAV = [
   { href: "/", label: "Dashboard", icon: "◧" },
   { href: "/ingest", label: "Ingest & Browse", icon: "⇪" },
+  { href: "/protocols", label: "Protocols", icon: "⚗" },
 ];
 
 export function Sidebar() {
