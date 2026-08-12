@@ -100,3 +100,71 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6) 
 
     log.warning("chat loop hit max_iters=%d", max_iters)
     return ChatReply(last_text or "Sorry — I couldn't finish that. Try rephrasing?", collected)
+
+
+def _status_for(tool_names: list[str]) -> str:
+    if "search_protocols" in tool_names:
+        return "Searching protocols…"
+    if "search_products" in tool_names or "product_detail" in tool_names:
+        return "Searching the catalog…"
+    if "protocol_products" in tool_names or "product_protocols" in tool_names:
+        return "Pulling the details…"
+    return "Looking that up…"
+
+
+def run_chat_stream(session, messages, *, client=None, model=None, max_iters: int = 6):
+    """Streaming variant of run_chat: a generator of SSE event dicts. Streams the
+    final answer's text deltas; tool rounds emit a status event. Never raises to the
+    caller — an error becomes an {"type":"error"} event so the SSE stream closes cleanly."""
+    if not settings.anthropic_api_key:
+        yield {"type": "error", "detail": "ANTHROPIC_API_KEY is not set — the assistant needs it."}
+        return
+    if client is None:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=settings.anthropic_api_key)
+    model = model or settings.chat_model
+
+    convo = [{"role": m["role"], "content": m["content"]} for m in messages]
+    collected: list[ReferencedItem] = []
+    seen: set[tuple[str, str]] = set()
+
+    def _items_event():
+        return {"type": "items", "items": [{"type": i.type, "id": i.id, "name": i.name} for i in collected]}
+
+    try:
+        for _ in range(max_iters):
+            with client.messages.stream(
+                model=model, max_tokens=1024, system=SYSTEM,
+                tools=tools.TOOL_SCHEMAS, thinking={"type": "disabled"}, messages=convo,
+            ) as stream:
+                for event in stream:
+                    if (getattr(event, "type", None) == "content_block_delta"
+                            and getattr(getattr(event, "delta", None), "type", None) == "text_delta"):
+                        yield {"type": "delta", "text": event.delta.text}
+                final = stream.get_final_message()
+
+            if final.stop_reason != "tool_use":
+                yield _items_event()
+                yield {"type": "done"}
+                return
+
+            tool_names = [b.name for b in final.content if getattr(b, "type", None) == "tool_use"]
+            yield {"type": "status", "text": _status_for(tool_names)}
+            convo.append({"role": "assistant", "content": [_block_to_dict(b) for b in final.content]})
+            results = []
+            for block in final.content:
+                if getattr(block, "type", None) != "tool_use":
+                    continue
+                result, items = tools.dispatch(session, block.name, block.input)
+                for it in items:
+                    if (it.type, it.id) not in seen:
+                        seen.add((it.type, it.id))
+                        collected.append(it)
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": json.dumps(result)})
+            convo.append({"role": "user", "content": results})
+
+        yield _items_event()
+        yield {"type": "done"}
+    except Exception as exc:  # noqa: BLE001 — surface as a stream event, never break the connection
+        yield {"type": "error", "detail": f"{type(exc).__name__}: {exc}"}
