@@ -70,6 +70,7 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6) 
         resp = client.messages.create(
             model=model, max_tokens=1024, system=SYSTEM,
             tools=tools.TOOL_SCHEMAS, messages=convo,
+            thinking={"type": "disabled"},
         )
         last_text = _text_of(resp) or last_text
         if resp.stop_reason != "tool_use":

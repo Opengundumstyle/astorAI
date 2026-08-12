@@ -75,6 +75,13 @@ def test_iteration_cap_returns_gracefully(monkeypatch):
     assert isinstance(out.reply, str)  # best-effort, no crash
 
 
+def test_thinking_is_disabled_so_no_thinking_blocks(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    client = _FakeClient([_resp("end_turn", [_text_block("hi")])])
+    agent.run_chat(object(), [{"role": "user", "content": "hi"}], client=client)
+    assert client.messages.calls[0]["thinking"] == {"type": "disabled"}
+
+
 def test_missing_key_raises(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", None)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
