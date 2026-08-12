@@ -128,3 +128,19 @@ export interface ProtocolMaterials {
   count: number;
   materials: MaterialLink[];
 }
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface ChatItem {
+  type: "product" | "protocol";
+  id: string;
+  name: string;
+}
+
+export interface ChatResponse {
+  reply: string;
+  items: ChatItem[];
+}

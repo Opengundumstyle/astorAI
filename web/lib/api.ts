@@ -1,4 +1,6 @@
 import type {
+  ChatMessage,
+  ChatResponse,
   IngestResult,
   LandedCost,
   ProductDetail,
@@ -64,5 +66,18 @@ export const api = {
       throw new Error(body.detail ?? `Ingest failed: ${res.status}`);
     }
     return res.json() as Promise<IngestResult>;
+  },
+
+  sendChat: async (messages: ChatMessage[]): Promise<ChatResponse> => {
+    const res = await fetch(`${BASE}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messages }),
+    });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      throw new Error(b.detail ?? `Chat failed: ${res.status}`);
+    }
+    return res.json() as Promise<ChatResponse>;
   },
 };
