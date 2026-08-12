@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
 
     anthropic_api_key: str | None = None
+    chat_model: str = "claude-sonnet-5"  # storefront assistant (tool-use loop)
 
     # -- Shopify house-catalog inbound feed (secrets stay in .env) ----------- #
     shopify_shop_domain: str | None = None      # "astor" | "astor.myshopify.com"
