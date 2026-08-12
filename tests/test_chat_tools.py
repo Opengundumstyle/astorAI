@@ -50,3 +50,7 @@ def test_schemas_cover_all_five_tools():
     names = {t["name"] for t in tools.TOOL_SCHEMAS}
     assert names == {"search_products", "search_protocols", "protocol_products",
                      "product_protocols", "product_detail"}
+
+def test_unknown_tool_name_returns_error():
+    result, items = tools.dispatch(_sess(), "nonexistent_tool", {})
+    assert "error" in result and items == []
