@@ -42,3 +42,27 @@ def test_multi_value_params_joined_by_comma():
     items = [("ids", "1"), ("ids", "2"), ("ids", "3"),
              ("shop", "demo.myshopify.com"), ("signature", sig)]
     assert valid_app_proxy_signature(items, secret) is True
+
+
+def test_sorts_rendered_strings_not_keys():
+    # Shopify sorts the RENDERED "key=value" strings, not the bare keys. For
+    # {"a": "1", "a1": "2"} that means "a1=2" (< '=' at 0x3D, '1' is 0x31)
+    # sorts before "a=1" — the opposite order a key-sort would produce.
+    # Expected message hardcoded here (not derived from the implementation)
+    # so this test actually discriminates key-sort from string-sort.
+    secret = "s3cr3t"
+    message = "a1=2a=1"
+    sig = hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+    items = [("a", "1"), ("a1", "2"), ("signature", sig)]
+    assert valid_app_proxy_signature(items, secret) is True
+
+
+def test_blank_signature_fails():
+    assert valid_app_proxy_signature([("shop", "demo.myshopify.com"), ("signature", "")], "s3cr3t") is False
+
+
+def test_non_ascii_signature_fails_without_raising():
+    # hmac.compare_digest on two `str` raises TypeError for non-ASCII input;
+    # comparing bytes instead must make this cleanly return False.
+    items = [("shop", "demo.myshopify.com"), ("signature", "café")]
+    assert valid_app_proxy_signature(items, "s3cr3t") is False

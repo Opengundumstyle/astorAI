@@ -21,7 +21,16 @@ Proves a signed Shopify request reaches and passes the engine. All free; touches
 7. **Install** — install the app on your dev store (App → Test on development store / Select store).
 8. **Verify** — open `https://<dev-store>.myshopify.com/apps/astor/ping`.
    - Expect: `{"ok": true, "shop": "<dev-store>.myshopify.com"}`.
-   - Tamper the URL (add `&x=1`) → `401 invalid App Proxy signature`. That's correct — the signature no longer matches.
+   - To see a rejection, tamper the *signed* request, not the plain URL: copy the
+     resulting request URL (with its `signature=...` query param) and hand-edit a
+     single character of that `signature` value, then re-request it →
+     `401 invalid App Proxy signature`.
+   - Note: appending an unsigned param yourself (e.g. `&x=1`) will **not** 401 —
+     any param a visitor adds is forwarded by Shopify and is *included* when
+     Shopify computes the signature, so it arrives already signed and still
+     verifies as `200`. Only altering a value *after* Shopify has signed it
+     (the signature itself, or any signed param) breaks verification — which is
+     exactly what a forged/tampered request looks like.
 
 ## What this proves
 Shopify signed the request, forwarded it through the App Proxy to your engine, and the
