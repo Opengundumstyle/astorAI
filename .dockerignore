@@ -1,0 +1,18 @@
+# The engine image needs only the Python package + migrations. Everything else
+# (frontend, tests, docs, local data, git, scratch) is excluded to keep the build
+# small and fast.
+web/
+tests/
+docs/
+data/
+.git/
+.github/
+.superpowers/
+.venv/
+**/__pycache__/
+**/*.pyc
+*.log
+harvest.log
+.env
+.env.*
+!.env.example
