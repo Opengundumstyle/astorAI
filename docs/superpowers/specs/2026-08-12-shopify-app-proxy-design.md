@@ -29,8 +29,10 @@ that trust boundary — on a dev store, at zero cost, touching nothing live.
 - App Proxy signature (distinct from webhook HMAC): Shopify appends `shop`,
   `path_prefix`, `timestamp`, `signature` (and `logged_in_customer_id` when present) to
   the proxied request. `signature` = **hex** HMAC-SHA256 over the query params *excluding
-  `signature`*, each rendered `key=value` (array values joined by `,`), **sorted by key
-  and concatenated with no separator**, keyed by the app's **API secret key** (= the
+  `signature`*, each rendered `key=value` (array values joined by `,`), then the
+  **rendered `key=value` strings sorted and concatenated with no separator** (Shopify's
+  reference sorts the assembled strings, not the keys — they differ only when one key is a
+  prefix of another, e.g. `a`/`a1`), keyed by the app's **API secret key** (= the
   existing `settings.shopify_client_secret`). Verify by recompute + constant-time compare.
   (Webhook HMAC, by contrast, is base64 over the raw body in a header — not used here.)
 - The engine is FastAPI (`astor.api.main:create_app`); routers under
