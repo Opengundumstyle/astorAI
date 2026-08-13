@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     shopify_supplier_region: str = "US"
     shopify_supplier_tier: str = "authorized"     # public | authorized | deep
 
+    # App Proxy request verification. Same value as the app's API secret key
+    # (shopify_client_secret); a dedicated field lets it be scoped/rotated apart.
+    shopify_app_proxy_secret: str | None = None
+
     # -- protocols.io ingest (v1 protocol source; secrets stay in .env) ------ #
     protocols_io_token: str | None = None  # required for live fetch (gated, see sources.py)
     protocols_io_licensed: bool = False  # second lock: bulk search/fetch stays off until a licence is confirmed

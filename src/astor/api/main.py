@@ -6,7 +6,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from astor.api.routers import catalog, chat, dashboard, pricing, protocols
+from astor.api.routers import catalog, chat, dashboard, pricing, protocols, shopify_proxy
 
 
 def create_app() -> FastAPI:
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     app.include_router(dashboard.router)
     app.include_router(pricing.router)
     app.include_router(protocols.router)
+    app.include_router(shopify_proxy.router)
 
     if os.getenv("SEED_DEMO") == "1":
         from astor.api.seed import seed_demo
