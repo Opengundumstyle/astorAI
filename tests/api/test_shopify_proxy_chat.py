@@ -85,3 +85,18 @@ def test_widget_has_required_behaviors():
     assert "astor-chat" in src
     # friendly error copy, no raw status codes shown to shoppers
     assert "having trouble reaching the assistant" in src
+
+
+def test_widget_js_served_with_valid_signature(monkeypatch):
+    c = _client(monkeypatch, lambda *a, **k: agent.ChatReply("", []))
+    resp = c.get("/proxy/widget.js", params=_signed({"shop": "astor-dev.myshopify.com"}))
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("application/javascript")
+    assert "astor-chat" in resp.text
+
+
+def test_widget_js_401_on_bad_signature(monkeypatch):
+    c = _client(monkeypatch, lambda *a, **k: agent.ChatReply("", []))
+    resp = c.get("/proxy/widget.js",
+                 params={"shop": "astor-dev.myshopify.com", "signature": "deadbeef"})
+    assert resp.status_code == 401
