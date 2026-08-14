@@ -37,5 +37,26 @@ Shopify signed the request, forwarded it through the App Proxy to your engine, a
 engine verified the signature. The same app later installs on astorscientific.us; only the
 Proxy URL changes (to the hosted engine) — the verification code is identical.
 
-## Next
-- Sub-project #2: route the chat endpoints through `/proxy` and embed the widget in the theme.
+## Storefront chat (sub-project #2)
+
+Once the ping verifies, put the assistant on the storefront.
+
+1. Ensure the engine + `cloudflared` tunnel are running and the App Proxy "Proxy URL" in
+   the Shopify app still points at the current tunnel (`https://<tunnel>/proxy`). The
+   tunnel URL is ephemeral — if it changed, update the app config and Release again.
+2. In the dev store admin: **Online Store → Themes → ⋯ → Edit code**, open
+   `layout/theme.liquid`, and paste this just before `</body>`, then Save:
+
+   ```html
+   <div id="astor-chat"></div>
+   <script src="/apps/astor/widget.js" defer></script>
+   ```
+3. Make sure the storefront isn't password-gated (**Online Store → Preferences →
+   Password protection**), then open the storefront. A chat bubble appears bottom-right.
+4. Open it and ask, e.g. "I need to run a Western blot — what do I need?" You should get a
+   reply with product/protocol chips — served by your local engine, verified through the
+   App Proxy.
+
+If the bubble never appears, view-source and confirm `/apps/astor/widget.js` loads (200,
+`application/javascript`). If it appears but every message errors, the engine or tunnel is
+down, or `ANTHROPIC_API_KEY` isn't set in `.env`.
