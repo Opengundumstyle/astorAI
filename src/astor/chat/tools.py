@@ -69,7 +69,7 @@ def _product_detail(session, args) -> tuple[dict, list[ReferencedItem]]:
 
 
 def _protocols_by_material(session, args) -> tuple[dict, list[ReferencedItem]]:
-    r = repo.protocols_by_material(session, args["material"], limit=int(args.get("limit") or 10))
+    r = repo.protocols_by_material(session, args["material"], limit=min(int(args.get("limit") or 10), 50))
     items = [ReferencedItem("protocol", p["id"], p["title"]) for p in r["protocols"]]
     return r, items
 

@@ -83,6 +83,23 @@ def test_limit_caps_rows_but_total_is_full_count():
             s.query(Protocol).filter(Protocol.source == MARK).delete()
 
 
+def test_percent_in_term_is_matched_literally_not_as_wildcard():
+    with session_scope() as s:
+        try:
+            s.add_all([
+                _p("Literal percent", [{"name": f"{TOKEN}%X"}], rank=1.0),
+                _p("Wildcard bait", [{"name": f"{TOKEN}zzX"}], rank=2.0),
+            ])
+            s.flush()
+            # An unescaped '%' in the term would act as a SQL wildcard and match both
+            # rows; escaped, it must match only the literal '%' material.
+            r = repo.protocols_by_material(s, f"{TOKEN}%X")
+            assert r["total"] == 1
+            assert [p["title"] for p in r["protocols"]] == ["Literal percent"]
+        finally:
+            s.query(Protocol).filter(Protocol.source == MARK).delete()
+
+
 def test_blank_term_returns_empty_without_querying():
     with session_scope() as s:
         assert repo.protocols_by_material(s, "   ") == {"total": 0, "protocols": []}

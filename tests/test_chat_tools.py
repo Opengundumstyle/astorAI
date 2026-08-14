@@ -78,3 +78,15 @@ def test_protocols_by_material_empty(monkeypatch):
     result, items = tools.dispatch(_sess(), "protocols_by_material", {"material": "unobtanium"})
     assert result == {"total": 0, "protocols": []}
     assert items == []
+
+
+def test_protocols_by_material_caps_limit(monkeypatch):
+    captured = {}
+
+    def fake_protocols_by_material(s, material, *, limit):
+        captured["limit"] = limit
+        return {"total": 0, "protocols": []}
+
+    monkeypatch.setattr(repo, "protocols_by_material", fake_protocols_by_material)
+    tools.dispatch(_sess(), "protocols_by_material", {"material": "x", "limit": 999})
+    assert captured["limit"] == 50

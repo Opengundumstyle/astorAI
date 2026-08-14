@@ -221,12 +221,14 @@ def protocols_by_material(session, material: str, *, limit: int = 10) -> dict:
         return {"total": 0, "protocols": []}
 
     # Correlated EXISTS over the jsonb materials array, normalizing each element name
-    # the same way as the term. `protocols` is the Protocol table name.
+    # the same way as the term. `protocols` is the Protocol table name. Escape LIKE
+    # wildcards (%, _) in the term so SQL matches literally, same as the Python loop.
+    norm_esc = norm.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pred = text(
         "EXISTS (SELECT 1 FROM jsonb_array_elements(protocols.materials) AS elem "
         "WHERE regexp_replace(lower(elem->>'name'), '[-/[:space:]]+', ' ', 'g') "
-        "LIKE :pat)"
-    ).bindparams(pat=f"%{norm}%")
+        "LIKE :pat ESCAPE '\\')"
+    ).bindparams(pat=f"%{norm_esc}%")
 
     link_count = (
         select(func.count(ProtocolMaterialLink.id))
@@ -250,7 +252,7 @@ def protocols_by_material(session, material: str, *, limit: int = 10) -> dict:
     for pid, title, materials, pc in rows:
         matched = next(
             (m.get("name") for m in (materials or [])
-             if norm in _normalize_material(m.get("name") or "")),
+             if isinstance(m, dict) and norm in _normalize_material(m.get("name") or "")),
             "",
         )
         protocols.append({"id": str(pid), "title": title,
