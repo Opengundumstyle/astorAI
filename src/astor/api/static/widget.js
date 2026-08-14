@@ -37,7 +37,8 @@
     "#astor-chat .astor-user{align-self:flex-end;background:#111;color:#fff}",
     "#astor-chat .astor-bot{align-self:flex-start;background:#fff;border:1px solid #e5e5e5;color:#111}",
     "#astor-chat .astor-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}",
-    "#astor-chat .astor-chip{font-size:12px;padding:3px 8px;border:1px solid #ddd;border-radius:999px;background:#f3f3f3;color:#333}",
+    "#astor-chat .astor-chip{font-size:12px;padding:3px 8px;border:1px solid #ddd;border-radius:999px;background:#f3f3f3;color:#333;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+    "#astor-chat .astor-chip-more{background:#111;color:#fff;border-color:#111}",
     "#astor-chat .astor-ex{align-self:flex-start;text-align:left;font-size:13px;padding:7px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;color:#111;cursor:pointer}",
     "#astor-chat .astor-foot{display:flex;gap:6px;padding:10px;border-top:1px solid #eee;background:#fff}",
     "#astor-chat .astor-input{flex:1;padding:9px 11px;border:1px solid #ddd;border-radius:8px;font-size:14px;outline:none}",
@@ -111,10 +112,16 @@
     return m;
   }
 
+  var MAX_CHIPS = 6;
   function addChips(container, items) {
     if (!items || !items.length) return;
     var chips = el("astor-chips");
-    items.forEach(function (it) { chips.appendChild(el("astor-chip", it.name)); });
+    items.slice(0, MAX_CHIPS).forEach(function (it) {
+      chips.appendChild(el("astor-chip", it.name));
+    });
+    if (items.length > MAX_CHIPS) {
+      chips.appendChild(el("astor-chip astor-chip-more", "+" + (items.length - MAX_CHIPS) + " more"));
+    }
     container.appendChild(chips);
     scrollLog();
   }
