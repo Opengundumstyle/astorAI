@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -63,3 +64,24 @@ def test_proxy_chat_503_when_run_chat_raises(monkeypatch):
     resp = c.post("/proxy/chat", params=_signed({"shop": "astor-dev.myshopify.com"}),
                   json={"messages": [{"role": "user", "content": "hi"}]})
     assert resp.status_code == 503
+
+
+WIDGET_JS = Path(__file__).resolve().parents[2] / "src" / "astor" / "api" / "static" / "widget.js"
+
+
+def test_widget_file_exists():
+    assert WIDGET_JS.is_file()
+
+
+def test_widget_has_required_behaviors():
+    src = WIDGET_JS.read_text()
+    # base derived from its own <script> tag (currentScript is null under defer)
+    assert 'script[src*="widget.js"]' in src
+    # posts to <base>/chat
+    assert "/chat" in src
+    # client-side timeout to stay under the App Proxy limit
+    assert "AbortController" in src
+    # namespaced mount + styles
+    assert "astor-chat" in src
+    # friendly error copy, no raw status codes shown to shoppers
+    assert "having trouble reaching the assistant" in src
