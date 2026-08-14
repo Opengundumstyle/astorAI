@@ -22,6 +22,18 @@ def list_protocols(
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
+@router.get("/protocols/by-material")
+def protocols_by_material(
+    q: str | None = None,
+    limit: int = Query(10, ge=1),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Protocols that USE a given material/reagent (reverse lookup over material lists)."""
+    if not q or not q.strip():
+        return {"total": 0, "protocols": []}
+    return repo.protocols_by_material(session, q, limit=min(limit, 50))
+
+
 @router.get("/protocols/{protocol_id}/materials")
 def protocol_materials(
     protocol_id: str,
