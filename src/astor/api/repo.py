@@ -6,9 +6,10 @@ DB-gated smoke test.
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from astor.api import schemas
 from astor.catalog import matcher
@@ -200,6 +201,61 @@ def list_protocols(session, q: str | None, page: int, page_size: int):
         for i, t, s, r, pc in rows
     ]
     return items, total
+
+
+def _normalize_material(term: str) -> str:
+    """Lowercase and collapse runs of hyphen/slash/whitespace to a single space."""
+    return re.sub(r"[-/\s]+", " ", (term or "").lower()).strip()
+
+
+def protocols_by_material(session, material: str, *, limit: int = 10) -> dict:
+    """Servable protocols whose materials list a reagent matching `material`.
+
+    Lexical reverse search: normalize the term and each material name (lowercase;
+    collapse -,/,whitespace to a single space) and substring-match. Ordered by review
+    rank then catalog-connectedness. `total` is the full match count; `protocols` is
+    capped at `limit`. Blank term → empty, never raises.
+    """
+    norm = _normalize_material(material)
+    if not norm:
+        return {"total": 0, "protocols": []}
+
+    # Correlated EXISTS over the jsonb materials array, normalizing each element name
+    # the same way as the term. `protocols` is the Protocol table name.
+    pred = text(
+        "EXISTS (SELECT 1 FROM jsonb_array_elements(protocols.materials) AS elem "
+        "WHERE regexp_replace(lower(elem->>'name'), '[-/[:space:]]+', ' ', 'g') "
+        "LIKE :pat)"
+    ).bindparams(pat=f"%{norm}%")
+
+    link_count = (
+        select(func.count(ProtocolMaterialLink.id))
+        .where(ProtocolMaterialLink.protocol_id == Protocol.id)
+        .correlate(Protocol)
+        .scalar_subquery()
+    )
+
+    total = session.scalar(
+        select(func.count(Protocol.id)).where(Protocol.servable.is_(True)).where(pred)
+    ) or 0
+
+    rows = session.execute(
+        select(Protocol.id, Protocol.title, Protocol.materials, link_count.label("pc"))
+        .where(Protocol.servable.is_(True)).where(pred)
+        .order_by(Protocol.rank_score.desc(), link_count.desc())
+        .limit(limit)
+    ).all()
+
+    protocols = []
+    for pid, title, materials, pc in rows:
+        matched = next(
+            (m.get("name") for m in (materials or [])
+             if norm in _normalize_material(m.get("name") or "")),
+            "",
+        )
+        protocols.append({"id": str(pid), "title": title,
+                          "product_count": int(pc), "matched_material": matched})
+    return {"total": int(total), "protocols": protocols}
 
 
 def protocol_materials(
