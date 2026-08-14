@@ -87,6 +87,13 @@ def test_widget_has_required_behaviors():
     assert "having trouble reaching the assistant" in src
 
 
+def test_widget_review_fixes():
+    src = WIDGET_JS.read_text()
+    assert "!e.isComposing" in src        # IME guard
+    assert "__astorChatLoaded" in src     # double-load guard
+    assert "messages.pop()" in src        # error-path history fix
+
+
 def test_widget_js_served_with_valid_signature(monkeypatch):
     c = _client(monkeypatch, lambda *a, **k: agent.ChatReply("", []))
     resp = c.get("/proxy/widget.js", params=_signed({"shop": "astor-dev.myshopify.com"}))

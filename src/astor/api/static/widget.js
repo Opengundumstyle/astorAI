@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  if (window.__astorChatLoaded) return;
+  window.__astorChatLoaded = true;
+
   // Derive the App Proxy base from this script's own src.
   // (defer scripts run after parsing, so document.currentScript is null — query the tag.)
   var scriptEl = document.querySelector('script[src*="widget.js"]');
@@ -72,7 +75,7 @@
     root.classList.remove("astor-open");
   });
   sendBtn.addEventListener("click", function () { submit(input.value); });
-  input.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(input.value); });
+  input.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.isComposing) submit(input.value); });
 
   function openPanel() {
     root.classList.add("astor-open");
@@ -151,7 +154,8 @@
     }).catch(function () {
       clearTimeout(timer);
       typingEl.textContent = ERROR_MSG;
-      // don't record the error in history, so the next turn retries cleanly
+      // drop the failed user turn so history stays alternating and nothing is silently resent
+      messages.pop();
       setBusy(false);
       input.focus();
     });
