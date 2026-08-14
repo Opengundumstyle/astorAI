@@ -86,3 +86,25 @@ def test_missing_key_raises(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", None)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         agent.run_chat(object(), [{"role": "user", "content": "hi"}])
+
+
+def test_agent_loop_uses_protocols_by_material(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    calls = []
+    def fake_dispatch(s, name, args):
+        calls.append(name)
+        if name == "protocols_by_material":
+            return ({"total": 1, "protocols": [{"id": "x1", "title": "Cell passaging",
+                     "product_count": 2, "matched_material": "Trypsin-EDTA"}]},
+                    [ReferencedItem("protocol", "x1", "Cell passaging")])
+        return ({}, [])
+    monkeypatch.setattr(tools, "dispatch", fake_dispatch)
+
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "protocols_by_material", {"material": "Trypsin-EDTA"})]),
+        _resp("end_turn", [_text_block("30 protocols use Trypsin-EDTA. Best match: Cell passaging.")]),
+    ])
+    out = agent.run_chat(object(), [{"role": "user", "content": "what protocols use trypsin-edta?"}],
+                         client=client)
+    assert "protocols_by_material" in calls
+    assert out.items == [ReferencedItem("protocol", "x1", "Cell passaging")]
