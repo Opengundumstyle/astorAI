@@ -68,12 +68,19 @@ def _product_detail(session, args) -> tuple[dict, list[ReferencedItem]]:
     return compact, [ReferencedItem("product", d["id"], d["name"])]
 
 
+def _protocols_by_material(session, args) -> tuple[dict, list[ReferencedItem]]:
+    r = repo.protocols_by_material(session, args["material"], limit=min(int(args.get("limit") or 10), 50))
+    items = [ReferencedItem("protocol", p["id"], p["title"]) for p in r["protocols"]]
+    return r, items
+
+
 _HANDLERS = {
     "search_products": _search_products,
     "search_protocols": _search_protocols,
     "protocol_products": _protocol_products,
     "product_protocols": _product_protocols,
     "product_detail": _product_detail,
+    "protocols_by_material": _protocols_by_material,
 }
 
 
@@ -113,4 +120,12 @@ TOOL_SCHEMAS = [
      "input_schema": {"type": "object",
                       "properties": {"product_id": {"type": "string"}},
                       "required": ["product_id"]}},
+    {"name": "protocols_by_material",
+     "description": "Find protocols that USE a given lab material/reagent by name (reverse "
+                    "lookup over each protocol's material list). Use this for 'which protocols "
+                    "use X' / 'what protocols need X' questions. Returns a total count and the "
+                    "top matches; each match includes the material text that matched.",
+     "input_schema": {"type": "object",
+                      "properties": {"material": {"type": "string"}, "limit": {"type": "integer"}},
+                      "required": ["material"]}},
 ]

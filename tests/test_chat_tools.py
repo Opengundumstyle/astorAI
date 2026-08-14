@@ -46,11 +46,47 @@ def test_tool_exception_is_caught(monkeypatch):
     result, items = tools.dispatch(_sess(), "search_products", {"query": "x"})
     assert "error" in result and items == []
 
-def test_schemas_cover_all_five_tools():
+def test_schemas_cover_all_six_tools():
     names = {t["name"] for t in tools.TOOL_SCHEMAS}
     assert names == {"search_products", "search_protocols", "protocol_products",
-                     "product_protocols", "product_detail"}
+                     "product_protocols", "product_detail", "protocols_by_material"}
 
 def test_unknown_tool_name_returns_error():
     result, items = tools.dispatch(_sess(), "nonexistent_tool", {})
     assert "error" in result and items == []
+
+def test_protocols_by_material_refs_protocols(monkeypatch):
+    monkeypatch.setattr(repo, "protocols_by_material",
+        lambda s, material, *, limit: {
+            "total": 2,
+            "protocols": [
+                {"id": "x1", "title": "Cell passaging", "product_count": 3, "matched_material": "Trypsin-EDTA"},
+                {"id": "x2", "title": "Fibroblast culture", "product_count": 1, "matched_material": "0.25% Trypsin-EDTA"},
+            ]} if material == "Trypsin-EDTA" else {"total": 0, "protocols": []})
+    result, items = tools.dispatch(_sess(), "protocols_by_material", {"material": "Trypsin-EDTA"})
+    assert result["total"] == 2
+    assert result["protocols"][0]["title"] == "Cell passaging"
+    assert items == [
+        tools.ReferencedItem("protocol", "x1", "Cell passaging"),
+        tools.ReferencedItem("protocol", "x2", "Fibroblast culture"),
+    ]
+
+
+def test_protocols_by_material_empty(monkeypatch):
+    monkeypatch.setattr(repo, "protocols_by_material",
+        lambda s, material, *, limit: {"total": 0, "protocols": []})
+    result, items = tools.dispatch(_sess(), "protocols_by_material", {"material": "unobtanium"})
+    assert result == {"total": 0, "protocols": []}
+    assert items == []
+
+
+def test_protocols_by_material_caps_limit(monkeypatch):
+    captured = {}
+
+    def fake_protocols_by_material(s, material, *, limit):
+        captured["limit"] = limit
+        return {"total": 0, "protocols": []}
+
+    monkeypatch.setattr(repo, "protocols_by_material", fake_protocols_by_material)
+    tools.dispatch(_sess(), "protocols_by_material", {"material": "x", "limit": 999})
+    assert captured["limit"] == 50
