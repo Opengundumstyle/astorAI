@@ -1,7 +1,10 @@
 import hashlib
 import hmac
 
-from astor.api.shopify_proxy import valid_app_proxy_signature
+from starlette.requests import Request
+
+from astor.api.shopify_proxy import valid_app_proxy_signature, verify_app_proxy
+from astor.config import settings
 
 
 def _sign(params: dict[str, str], secret: str) -> str:
@@ -66,3 +69,32 @@ def test_non_ascii_signature_fails_without_raising():
     # comparing bytes instead must make this cleanly return False.
     items = [("shop", "demo.myshopify.com"), ("signature", "café")]
     assert valid_app_proxy_signature(items, "s3cr3t") is False
+
+
+def _request(params: dict[str, str], secret: str) -> Request:
+    signed = {**params, "signature": _sign(params, secret)}
+    query_string = "&".join(f"{k}={v}" for k, v in signed.items())
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/proxy/ping",
+        "query_string": query_string.encode(),
+        "headers": [],
+    }
+    return Request(scope)
+
+
+def test_verify_app_proxy_extracts_customer_id(monkeypatch):
+    secret = "s3cr3t"
+    monkeypatch.setattr(settings, "shopify_app_proxy_secret", secret)
+    request = _request({"shop": "demo.myshopify.com", "logged_in_customer_id": "cust-42"}, secret)
+    ctx = verify_app_proxy(request)
+    assert ctx == {"shop": "demo.myshopify.com", "customer_id": "cust-42"}
+
+
+def test_verify_app_proxy_customer_id_none_when_absent(monkeypatch):
+    secret = "s3cr3t"
+    monkeypatch.setattr(settings, "shopify_app_proxy_secret", secret)
+    request = _request({"shop": "demo.myshopify.com"}, secret)
+    ctx = verify_app_proxy(request)
+    assert ctx == {"shop": "demo.myshopify.com", "customer_id": None}

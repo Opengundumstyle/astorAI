@@ -20,6 +20,7 @@ from astor.db.models import (
     Product,
     Protocol,
     ProtocolMaterialLink,
+    SourcingRequest,
     Supplier,
     SupplierOffer,
 )
@@ -294,6 +295,30 @@ def protocol_materials(
             for m, pid, pn, brand, c, k in rows
         ],
     }
+
+
+def create_sourcing_request(session, *, requested_item, context="", shop=None,
+                            customer_id=None, email=None) -> dict:
+    """Insert a captured sourcing request. Identity (shop/customer_id) is passed by the
+    caller from the verified proxy request, not by the model."""
+    row = SourcingRequest(
+        requested_item=requested_item, context=context or "",
+        shop=shop, customer_id=customer_id, email=email)
+    session.add(row)
+    session.flush()
+    return {"id": str(row.id), "requested_item": row.requested_item, "status": row.status}
+
+
+def list_sourcing_requests(session, *, limit: int = 50) -> list[dict]:
+    rows = session.execute(
+        select(SourcingRequest).order_by(SourcingRequest.created_at.desc()).limit(limit)
+    ).scalars().all()
+    return [
+        {"id": str(r.id), "requested_item": r.requested_item, "context": r.context,
+         "shop": r.shop, "customer_id": r.customer_id, "email": r.email,
+         "status": r.status, "created_at": r.created_at.isoformat()}
+        for r in rows
+    ]
 
 
 def run_ingest(session, path: Path, supplier: str, region: str, tier: str,

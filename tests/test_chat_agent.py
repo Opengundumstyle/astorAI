@@ -32,8 +32,9 @@ def test_returns_text_when_no_tools(monkeypatch):
 def test_runs_tool_then_returns_text_and_items(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
     monkeypatch.setattr(tools, "dispatch",
-        lambda s, name, args: ({"protocols": [{"id": "x1", "title": "WB", "product_count": 5}]},
-                               [ReferencedItem("protocol", "x1", "WB")]))
+        lambda s, name, args, request_context=None: (
+            {"protocols": [{"id": "x1", "title": "WB", "product_count": 5}]},
+            [ReferencedItem("protocol", "x1", "WB")]))
     client = _FakeClient([
         _resp("tool_use", [_tool_block("t1", "search_protocols", {"query": "western"})]),
         _resp("end_turn", [_text_block("I found the Western Blot protocol.")]),
@@ -52,8 +53,8 @@ def test_runs_tool_then_returns_text_and_items(monkeypatch):
 def test_items_are_deduped(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
     monkeypatch.setattr(tools, "dispatch",
-        lambda s, name, args: ({}, [ReferencedItem("product", "p1", "A"),
-                                    ReferencedItem("product", "p1", "A")]))
+        lambda s, name, args, request_context=None: (
+            {}, [ReferencedItem("product", "p1", "A"), ReferencedItem("product", "p1", "A")]))
     client = _FakeClient([
         _resp("tool_use", [_tool_block("t1", "search_products", {"query": "a"})]),
         _resp("end_turn", [_text_block("done")]),
@@ -64,7 +65,7 @@ def test_items_are_deduped(monkeypatch):
 
 def test_iteration_cap_returns_gracefully(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
-    monkeypatch.setattr(tools, "dispatch", lambda s, name, args: ({}, []))
+    monkeypatch.setattr(tools, "dispatch", lambda s, name, args, request_context=None: ({}, []))
     # always asks for a tool -> never a text stop
     always_tool = _resp("tool_use", [_tool_block("t", "search_products", {"query": "x"})])
 
@@ -91,7 +92,7 @@ def test_missing_key_raises(monkeypatch):
 def test_agent_loop_uses_protocols_by_material(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
     calls = []
-    def fake_dispatch(s, name, args):
+    def fake_dispatch(s, name, args, request_context=None):
         calls.append(name)
         if name == "protocols_by_material":
             return ({"total": 1, "protocols": [{"id": "x1", "title": "Cell passaging",
@@ -108,3 +109,41 @@ def test_agent_loop_uses_protocols_by_material(monkeypatch):
                          client=client)
     assert "protocols_by_material" in calls
     assert out.items == [ReferencedItem("protocol", "x1", "Cell passaging")]
+
+
+def test_run_chat_threads_request_context_into_dispatch(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    seen = {}
+    def capture(session, name, args, request_context=None):
+        seen["rc"] = request_context
+        return ({}, [])
+    monkeypatch.setattr(tools, "dispatch", capture)
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "search_products", {"query": "x"})]),
+        _resp("end_turn", [_text_block("done")]),
+    ])
+    agent.run_chat(object(), [{"role": "user", "content": "x"}], client=client,
+                   request_context={"shop": "astor-dev.myshopify.com", "customer_id": "c9"})
+    assert seen["rc"] == {"shop": "astor-dev.myshopify.com", "customer_id": "c9"}
+
+
+def test_agent_loop_flags_sourcing_with_server_identity(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    from astor.api import repo
+    captured = {}
+    monkeypatch.setattr(repo, "create_sourcing_request",
+        lambda s, *, requested_item, context, shop, customer_id, email: (
+            captured.update(item=requested_item, shop=shop, customer_id=customer_id)
+            or {"id": "1", "requested_item": requested_item, "status": "new"}))
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "flag_sourcing_request",
+                                       {"item": "Anti-FLAG antibody", "context": "WB"})]),
+        _resp("end_turn", [_text_block("Logged — we'll look into sourcing it.")]),
+    ])
+    out = agent.run_chat(object(), [{"role": "user", "content": "can you get anti-FLAG?"}],
+                         client=client,
+                         request_context={"shop": "astor-dev.myshopify.com", "customer_id": "c9"})
+    assert captured["item"] == "Anti-FLAG antibody"
+    assert captured["shop"] == "astor-dev.myshopify.com"
+    assert captured["customer_id"] == "c9"
+    assert out.reply.startswith("Logged")

@@ -357,6 +357,23 @@ class UpstreamPoLine(Base, TimestampMixin):
     po: Mapped["UpstreamPo"] = relationship(back_populates="lines")
 
 
+class SourcingRequest(Base, TimestampMixin):
+    """Customer-confirmed demand for something Astor doesn't carry, captured by the chat's
+    flag_sourcing_request tool. Identity (shop/customer_id) is server-supplied from the App
+    Proxy request, never model-set. Written only via the agent — no public write endpoint."""
+
+    __tablename__ = "sourcing_requests"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    requested_item: Mapped[str] = mapped_column(Text, nullable=False)
+    context: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
+    shop: Mapped[str | None] = mapped_column(String(255))
+    customer_id: Mapped[str | None] = mapped_column(String(64))
+    email: Mapped[str | None] = mapped_column(String(320))
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="new", server_default=text("'new'"))
+
+
 class Substitution(Base, TimestampMixin):
     """Exception-loop proposal surfaced to the customer for approval."""
 

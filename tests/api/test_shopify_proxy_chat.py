@@ -42,6 +42,25 @@ def test_proxy_chat_returns_reply_and_items(monkeypatch):
                            "items": [{"type": "protocol", "id": "x1", "name": "WB"}]}
 
 
+def test_proxy_chat_threads_identity_into_request_context(monkeypatch):
+    # Trust-boundary coverage: a regression that drops shop/customer_id between
+    # verify_app_proxy and run_chat's request_context must fail this test.
+    captured: dict = {}
+
+    def fake(session, messages, **kw):
+        captured.update(kw)
+        return agent.ChatReply("ok", [])
+
+    c = _client(monkeypatch, fake)
+    resp = c.post(
+        "/proxy/chat",
+        params=_signed({"shop": "astor-dev.myshopify.com", "logged_in_customer_id": "cust-42"}),
+        json={"messages": [{"role": "user", "content": "hi"}]},
+    )
+    assert resp.status_code == 200
+    assert captured["request_context"] == {"shop": "astor-dev.myshopify.com", "customer_id": "cust-42"}
+
+
 def test_proxy_chat_401_on_bad_signature(monkeypatch):
     c = _client(monkeypatch, lambda *a, **k: agent.ChatReply("nope", []))
     resp = c.post("/proxy/chat",

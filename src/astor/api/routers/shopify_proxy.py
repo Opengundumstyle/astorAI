@@ -44,7 +44,9 @@ def chat(
     """Storefront chat turn, verified as a signed App Proxy request. Reuses the same
     agent + response shape as /api/chat; non-streaming."""
     try:
-        reply = agent.run_chat(session, [m.model_dump() for m in body.messages])
+        reply = agent.run_chat(
+            session, [m.model_dump() for m in body.messages],
+            request_context={"shop": ctx["shop"], "customer_id": ctx["customer_id"]})
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     return {
