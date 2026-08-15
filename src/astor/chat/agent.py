@@ -40,7 +40,7 @@ SYSTEM = (
     "GROUNDING SPECIFICS:\n"
     "- For a 'which/what protocols use|need|require <material or reagent>' question, call "
     "protocols_by_material with the reagent's core name and lead with the count it returns; "
-    "if it returns 0, say plainly none in the catalog list it — never guess which protocols "
+    "if it returns 0, say plainly that no protocols in the catalog list it — never guess which protocols "
     "use it from general knowledge.\n"
     "- A technique for a SPECIFIC target (e.g. 'Western blot for phospho-ERK') is the standard "
     "technique plus a target-specific reagent — present the general protocol confidently and "
