@@ -39,8 +39,28 @@ Fixes a real bug found in live testing: "Find protocols that use Trypsin-EDTA" u
 - Verified live: the query now returns 9 grounded protocols instead of a hallucinated one.
 - Spec: `docs/superpowers/specs/2026-08-13-protocols-by-material-design.md`.
 
+### Move 4 — "Promote → source → point" advisor + demand capture
+Fixes the "feels like a smarter Google" problem: the bot deflected on anything off-catalog.
+- **Persona reshape** (`SYSTEM` in `chat/agent.py`): two lanes — catalog facts (products/
+  protocols/SKUs) come from tools and are never invented; scientific knowledge is used freely
+  to advise. Flow: promote Astor → on a miss, still answer the science + offer to flag for
+  sourcing → only if asked, name major suppliers generically (no fabricated SKUs/links).
+- **First WRITE capability**: `sourcing_requests` table + `flag_sourcing_request` chat tool.
+  The model supplies `item`/`context`/`email`; the **server** supplies `shop`/`customer_id`
+  from the verified App Proxy request — the model cannot set caller identity (enforced in the
+  handler, tested adversarially). `request_context` is threaded from `verify_app_proxy` →
+  `/proxy/chat` → `run_chat` → `dispatch` → the tool. Confirm-first; email opt-in.
+- **`GET /api/sourcing-requests`** (admin read, newest-first, limit cap 200) for the team to
+  review captured demand — the sourcing/stocking roadmap.
+- Verified live: an off-catalog ask ("anti-GFP nanobodies") logs a request + bridges to
+  related Astor products instead of dead-ending.
+- Spec: `docs/superpowers/specs/2026-08-14-promote-source-point-design.md`.
+- **DB note:** the `sourcing_requests` table is created via `Base.metadata.create_all` in the
+  diverged local dev DB (migration `0006_sourcing_requests.py` is the clean-deploy artifact —
+  do NOT `alembic upgrade head` locally, the phantom `0002_pack_size_text` breaks the chain).
+
 ## Test status
-- Offline suite: **214 passed, 6 skipped** (`python -m pytest -q`).
+- Offline suite: **223 passed, 9 skipped** (`python -m pytest -q`).
 - DB-gated repo tests (Postgres jsonb): pass under **`RUN_DB_TESTS=1`** (local Postgres).
   These are skipped in the normal run; all HTTP/tool/agent layers monkeypatch the repo, so
   the suite is green with no database.
@@ -76,8 +96,12 @@ Fixes a real bug found in live testing: "Find protocols that use Trypsin-EDTA" u
   demoable on the real store (dev store has fake products).
 - **Public-endpoint hardening** (before public launch): `/proxy/chat` is reachable by anyone
   who can load the storefront and is unmetered (each call costs Anthropic tokens). Add a
-  rate limit, a signed-`timestamp` freshness check, and a request-size cap. Deliberately a
-  non-goal of #2; revisit before astorscientific.us go-live.
+  rate limit, a signed-`timestamp` freshness check, and a request-size cap. **Must also cover
+  the unsigned demo `/api/chat`**, which — now that the chat can write — can create
+  `sourcing_requests` rows (null identity) without a signature. Deliberately a non-goal so
+  far; revisit before astorscientific.us go-live (and before `/api/chat` is publicly hosted).
+- **Sourcing-request surfacing** (Move 4 follow-ups): a dashboard tile + team notifications
+  on new requests (email/Slack) — deferred non-goals of Move 4; the read endpoint exists.
 - **Sub-projects #3 (hosting the engine+DB) and #4 (commerce/webhooks)**: not started.
 
 ## Where things are
