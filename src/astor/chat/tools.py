@@ -74,6 +74,22 @@ def _protocols_by_material(session, args, request_context=None) -> tuple[dict, l
     return r, items
 
 
+def _flag_sourcing_request(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
+    """WRITE: capture a customer-confirmed request for something Astor doesn't carry.
+    Identity (shop/customer_id) is taken from the server-supplied request_context, NEVER
+    from the model's args."""
+    rc = request_context or {}
+    r = repo.create_sourcing_request(
+        session,
+        requested_item=args["item"],
+        context=args.get("context", ""),
+        shop=rc.get("shop"),
+        customer_id=rc.get("customer_id"),
+        email=args.get("email"),
+    )
+    return {"logged": True, "item": r["requested_item"], "status": r["status"]}, []
+
+
 _HANDLERS = {
     "search_products": _search_products,
     "search_protocols": _search_protocols,
@@ -81,6 +97,7 @@ _HANDLERS = {
     "product_protocols": _product_protocols,
     "product_detail": _product_detail,
     "protocols_by_material": _protocols_by_material,
+    "flag_sourcing_request": _flag_sourcing_request,
 }
 
 
@@ -129,4 +146,16 @@ TOOL_SCHEMAS = [
      "input_schema": {"type": "object",
                       "properties": {"material": {"type": "string"}, "limit": {"type": "integer"}},
                       "required": ["material"]}},
+    {"name": "flag_sourcing_request",
+     "description": "Log a customer-confirmed request for a product/reagent Astor does NOT "
+                    "currently carry, so the team can look into sourcing it. Call this ONLY "
+                    "after the customer agrees to be flagged. Provide `item` (what they want) "
+                    "and `context` (their need in brief); include `email` only if the customer "
+                    "offers one for follow-up. Do NOT pass shop or customer identity — the "
+                    "server attaches that.",
+     "input_schema": {"type": "object",
+                      "properties": {"item": {"type": "string"},
+                                     "context": {"type": "string"},
+                                     "email": {"type": "string"}},
+                      "required": ["item"]}},
 ]

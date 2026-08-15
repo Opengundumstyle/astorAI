@@ -46,10 +46,11 @@ def test_tool_exception_is_caught(monkeypatch):
     result, items = tools.dispatch(_sess(), "search_products", {"query": "x"})
     assert "error" in result and items == []
 
-def test_schemas_cover_all_six_tools():
+def test_schemas_cover_all_seven_tools():
     names = {t["name"] for t in tools.TOOL_SCHEMAS}
     assert names == {"search_products", "search_protocols", "protocol_products",
-                     "product_protocols", "product_detail", "protocols_by_material"}
+                     "product_protocols", "product_detail", "protocols_by_material",
+                     "flag_sourcing_request"}
 
 def test_unknown_tool_name_returns_error():
     result, items = tools.dispatch(_sess(), "nonexistent_tool", {})
@@ -90,3 +91,35 @@ def test_protocols_by_material_caps_limit(monkeypatch):
     monkeypatch.setattr(repo, "protocols_by_material", fake_protocols_by_material)
     tools.dispatch(_sess(), "protocols_by_material", {"material": "x", "limit": 999})
     assert captured["limit"] == 50
+
+
+def test_flag_sourcing_request_server_identity_wins(monkeypatch):
+    captured = {}
+    def fake_create(session, *, requested_item, context, shop, customer_id, email):
+        captured.update(requested_item=requested_item, context=context, shop=shop,
+                        customer_id=customer_id, email=email)
+        return {"id": "1", "requested_item": requested_item, "status": "new"}
+    monkeypatch.setattr(repo, "create_sourcing_request", fake_create)
+    # model tries to spoof shop/customer_id in args; server request_context must win.
+    result, items = tools.dispatch(
+        _sess(), "flag_sourcing_request",
+        {"item": "Anti-FLAG antibody", "context": "WB for FLAG", "email": "a@b.com",
+         "shop": "EVIL", "customer_id": "EVIL"},
+        request_context={"shop": "astor-dev.myshopify.com", "customer_id": "cust-9"})
+    assert result == {"logged": True, "item": "Anti-FLAG antibody", "status": "new"}
+    assert items == []
+    assert captured["shop"] == "astor-dev.myshopify.com"   # not "EVIL"
+    assert captured["customer_id"] == "cust-9"              # not "EVIL"
+    assert captured["email"] == "a@b.com"
+    assert captured["context"] == "WB for FLAG"
+
+
+def test_flag_sourcing_request_demo_path_null_identity(monkeypatch):
+    captured = {}
+    def fake_create(session, *, requested_item, context, shop, customer_id, email):
+        captured.update(shop=shop, customer_id=customer_id, email=email)
+        return {"id": "1", "requested_item": requested_item, "status": "new"}
+    monkeypatch.setattr(repo, "create_sourcing_request", fake_create)
+    result, items = tools.dispatch(_sess(), "flag_sourcing_request", {"item": "X"})  # no request_context
+    assert result["logged"] is True
+    assert captured["shop"] is None and captured["customer_id"] is None and captured["email"] is None

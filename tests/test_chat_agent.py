@@ -125,3 +125,25 @@ def test_run_chat_threads_request_context_into_dispatch(monkeypatch):
     agent.run_chat(object(), [{"role": "user", "content": "x"}], client=client,
                    request_context={"shop": "astor-dev.myshopify.com", "customer_id": "c9"})
     assert seen["rc"] == {"shop": "astor-dev.myshopify.com", "customer_id": "c9"}
+
+
+def test_agent_loop_flags_sourcing_with_server_identity(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    from astor.api import repo
+    captured = {}
+    monkeypatch.setattr(repo, "create_sourcing_request",
+        lambda s, *, requested_item, context, shop, customer_id, email: (
+            captured.update(item=requested_item, shop=shop, customer_id=customer_id)
+            or {"id": "1", "requested_item": requested_item, "status": "new"}))
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "flag_sourcing_request",
+                                       {"item": "Anti-FLAG antibody", "context": "WB"})]),
+        _resp("end_turn", [_text_block("Logged — we'll look into sourcing it.")]),
+    ])
+    out = agent.run_chat(object(), [{"role": "user", "content": "can you get anti-FLAG?"}],
+                         client=client,
+                         request_context={"shop": "astor-dev.myshopify.com", "customer_id": "c9"})
+    assert captured["item"] == "Anti-FLAG antibody"
+    assert captured["shop"] == "astor-dev.myshopify.com"
+    assert captured["customer_id"] == "c9"
+    assert out.reply.startswith("Logged")
