@@ -74,7 +74,8 @@ def _block_to_dict(b) -> dict:
     return {"type": btype}
 
 
-def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6) -> ChatReply:
+def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
+             request_context: dict | None = None) -> ChatReply:
     if not settings.anthropic_api_key:
         raise RuntimeError("ANTHROPIC_API_KEY is not set — the assistant needs it.")
     if client is None:
@@ -102,7 +103,7 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6) 
         for block in resp.content:
             if getattr(block, "type", None) != "tool_use":
                 continue
-            result, items = tools.dispatch(session, block.name, block.input)
+            result, items = tools.dispatch(session, block.name, block.input, request_context)
             for it in items:
                 if (it.type, it.id) not in seen:
                     seen.add((it.type, it.id))
@@ -125,7 +126,8 @@ def _status_for(tool_names: list[str]) -> str:
     return "Looking that up…"
 
 
-def run_chat_stream(session, messages, *, client=None, model=None, max_iters: int = 6):
+def run_chat_stream(session, messages, *, client=None, model=None, max_iters: int = 6,
+                    request_context: dict | None = None):
     """Streaming variant of run_chat: a generator of SSE event dicts. Streams the
     final answer's text deltas; tool rounds emit a status event. Never raises to the
     caller — an error becomes an {"type":"error"} event so the SSE stream closes cleanly."""
@@ -168,7 +170,7 @@ def run_chat_stream(session, messages, *, client=None, model=None, max_iters: in
             for block in final.content:
                 if getattr(block, "type", None) != "tool_use":
                     continue
-                result, items = tools.dispatch(session, block.name, block.input)
+                result, items = tools.dispatch(session, block.name, block.input, request_context)
                 for it in items:
                     if (it.type, it.id) not in seen:
                         seen.add((it.type, it.id))

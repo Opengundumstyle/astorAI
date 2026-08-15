@@ -56,8 +56,9 @@ def test_tool_round_then_text_emits_status_and_items(monkeypatch):
         _FakeStream([], _final("tool_use", [_tool_block("t1", "search_protocols", {"query": "wb"})])),
         _FakeStream([_delta("Found it.")], _final("end_turn", [_text_block("Found it.")])),
     ])
-    dispatch = lambda s, name, args: ({"protocols": [{"id": "x1", "title": "WB", "product_count": 5}]},
-                                      [ReferencedItem("protocol", "x1", "WB")])
+    dispatch = lambda s, name, args, request_context=None: (
+        {"protocols": [{"id": "x1", "title": "WB", "product_count": 5}]},
+        [ReferencedItem("protocol", "x1", "WB")])
     events = _run(client, monkeypatch, dispatch)
     assert events[0] == {"type": "status", "text": "Searching protocols…"}
     assert {"type": "delta", "text": "Found it."} in events
@@ -74,8 +75,8 @@ def test_items_deduped(monkeypatch):
         _FakeStream([], _final("tool_use", [_tool_block("t1", "search_products", {"query": "a"})])),
         _FakeStream([_delta("ok")], _final("end_turn", [_text_block("ok")])),
     ])
-    dispatch = lambda s, name, args: ({}, [ReferencedItem("product", "p1", "A"),
-                                           ReferencedItem("product", "p1", "A")])
+    dispatch = lambda s, name, args, request_context=None: (
+        {}, [ReferencedItem("product", "p1", "A"), ReferencedItem("product", "p1", "A")])
     events = _run(client, monkeypatch, dispatch)
     items_ev = next(e for e in events if e["type"] == "items")
     assert items_ev["items"] == [{"type": "product", "id": "p1", "name": "A"}]

@@ -38,4 +38,5 @@ def verify_app_proxy(request: Request) -> dict:
         raise HTTPException(status_code=503, detail="Shopify App Proxy secret not configured.")
     if not valid_app_proxy_signature(list(request.query_params.multi_items()), secret):
         raise HTTPException(status_code=401, detail="invalid App Proxy signature")
-    return {"shop": request.query_params.get("shop")}
+    return {"shop": request.query_params.get("shop"),
+            "customer_id": request.query_params.get("logged_in_customer_id")}
