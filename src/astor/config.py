@@ -61,6 +61,12 @@ class Settings(BaseSettings):
     material_exact_threshold: float = 0.82
     material_substitute_threshold: float = 0.75
 
+    # Gates the internal /api/* surface when set (prod). Unset = open (local dev).
+    admin_token: str | None = None
+    # Public hosts set this true so a missing admin_token is a startup failure rather
+    # than a silently open API. See create_app.
+    admin_token_required: bool = False
+
     log_level: str = "INFO"
 
 
