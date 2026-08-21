@@ -183,6 +183,7 @@ def list_protocols(session, q: str | None, page: int, page_size: int):
     )
     base = select(
         Protocol.id, Protocol.title, Protocol.source, Protocol.rank_score,
+        Protocol.authors,
         link_count.label("product_count"),
     ).where(Protocol.servable.is_(True))
     count_stmt = select(func.count(Protocol.id)).where(Protocol.servable.is_(True))
@@ -198,10 +199,21 @@ def list_protocols(session, q: str | None, page: int, page_size: int):
     ).all()
     items = [
         {"id": str(i), "title": t, "source": s,
-         "rank_score": round(float(r), 2), "product_count": int(pc)}
-        for i, t, s, r, pc in rows
+         "rank_score": round(float(r), 2), "product_count": int(pc),
+         "first_author": (authors[0] if authors else None)}
+        for i, t, s, r, authors, pc in rows
     ]
     return items, total
+
+
+def protocol_source_uris(session, ids: list[str]) -> dict[str, str]:
+    """Click-through targets for protocol chips (the protocols.io source page)."""
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(Protocol.id, Protocol.source_uri).where(Protocol.id.in_(ids))
+    ).all()
+    return {str(i): u for i, u in rows if u}
 
 
 def _normalize_material(term: str) -> str:

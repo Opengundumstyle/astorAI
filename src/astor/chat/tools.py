@@ -17,6 +17,7 @@ class ReferencedItem:
     type: str   # "product" | "protocol"
     id: str
     name: str
+    url: str | None = None  # click target; attached by the agent after collection
 
 
 def _search_products(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
@@ -28,12 +29,20 @@ def _search_products(session, args, request_context=None) -> tuple[dict, list[Re
     return {"products": products}, items
 
 
+def _protocol_label(row: dict) -> str:
+    """Card label. Distinct protocols often share a title (the corpus has 11 named
+    exactly "Western Blot"), so append the first author to keep cards tellable apart."""
+    author = row.get("first_author")
+    return f"{row['title']} ({author})" if author else row["title"]
+
+
 def _search_protocols(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
     limit = int(args.get("limit") or 8)
     rows, _ = repo.list_protocols(session, args["query"], 1, limit)
-    protocols = [{"id": r["id"], "title": r["title"], "product_count": r["product_count"]}
+    protocols = [{"id": r["id"], "title": r["title"], "product_count": r["product_count"],
+                  "first_author": r.get("first_author")}
                  for r in rows]
-    items = [ReferencedItem("protocol", r["id"], r["title"]) for r in rows]
+    items = [ReferencedItem("protocol", r["id"], _protocol_label(r)) for r in rows]
     return {"protocols": protocols}, items
 
 
@@ -119,7 +128,9 @@ TOOL_SCHEMAS = [
                       "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}},
                       "required": ["query"]}},
     {"name": "search_protocols",
-     "description": "Search harvested lab protocols by title. Returns protocols and how many catalog products each maps to.",
+     "description": "Search harvested lab protocols by title. Returns protocols and how many "
+                    "catalog products each maps to. Different labs often publish protocols with "
+                    "identical titles; use first_author to tell them apart when presenting.",
      "input_schema": {"type": "object",
                       "properties": {"query": {"type": "string"}, "limit": {"type": "integer"}},
                       "required": ["query"]}},

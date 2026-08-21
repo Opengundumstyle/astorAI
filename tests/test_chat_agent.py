@@ -50,6 +50,42 @@ def test_runs_tool_then_returns_text_and_items(monkeypatch):
     )
 
 
+def test_items_get_click_urls(monkeypatch):
+    # products → storefront search link; protocols → their protocols.io source page
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    monkeypatch.setattr(tools, "dispatch",
+        lambda s, name, args, request_context=None: (
+            {}, [ReferencedItem("product", "p1", "BCA Kit 2x"),
+                 ReferencedItem("protocol", "x1", "WB (Jane Doe)")]))
+    monkeypatch.setattr(agent.repo, "protocol_source_uris",
+        lambda s, ids: {"x1": "https://www.protocols.io/view/western-blot-abc"})
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "search_products", {"query": "a"})]),
+        _resp("end_turn", [_text_block("done")]),
+    ])
+    out = agent.run_chat(object(), [{"role": "user", "content": "a"}], client=client)
+    assert out.items == [
+        ReferencedItem("product", "p1", "BCA Kit 2x", "/search?q=BCA%20Kit%202x"),
+        ReferencedItem("protocol", "x1", "WB (Jane Doe)",
+                       "https://www.protocols.io/view/western-blot-abc"),
+    ]
+
+
+def test_url_resolution_failure_never_breaks_reply(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    monkeypatch.setattr(tools, "dispatch",
+        lambda s, name, args, request_context=None: ({}, [ReferencedItem("protocol", "x1", "WB")]))
+    def boom(s, ids): raise RuntimeError("db down")
+    monkeypatch.setattr(agent.repo, "protocol_source_uris", boom)
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "search_protocols", {"query": "wb"})]),
+        _resp("end_turn", [_text_block("done")]),
+    ])
+    out = agent.run_chat(object(), [{"role": "user", "content": "wb"}], client=client)
+    assert out.reply == "done"
+    assert out.items == [ReferencedItem("protocol", "x1", "WB", None)]
+
+
 def test_items_are_deduped(monkeypatch):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
     monkeypatch.setattr(tools, "dispatch",
@@ -60,7 +96,7 @@ def test_items_are_deduped(monkeypatch):
         _resp("end_turn", [_text_block("done")]),
     ])
     out = agent.run_chat(object(), [{"role": "user", "content": "a"}], client=client)
-    assert out.items == [ReferencedItem("product", "p1", "A")]
+    assert out.items == [ReferencedItem("product", "p1", "A", "/search?q=A")]
 
 
 def test_iteration_cap_returns_gracefully(monkeypatch):

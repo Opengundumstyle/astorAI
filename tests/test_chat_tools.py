@@ -17,10 +17,23 @@ def test_search_products_is_compact_and_refs(monkeypatch):
 def test_search_protocols_refs(monkeypatch):
     monkeypatch.setattr(repo, "list_protocols",
         lambda s, q, page, page_size: ([{"id": "x1", "title": "Western Blot", "source": "protocols.io",
-                                         "rank_score": 8.1, "product_count": 5}], 1))
+                                         "rank_score": 8.1, "product_count": 5,
+                                         "first_author": "Karyna Tarasova"}], 1))
     result, items = tools.dispatch(_sess(), "search_protocols", {"query": "western"})
-    assert result["protocols"] == [{"id": "x1", "title": "Western Blot", "product_count": 5}]
-    assert items == [tools.ReferencedItem("protocol", "x1", "Western Blot")]
+    assert result["protocols"] == [{"id": "x1", "title": "Western Blot", "product_count": 5,
+                                    "first_author": "Karyna Tarasova"}]
+    assert items == [tools.ReferencedItem("protocol", "x1", "Western Blot (Karyna Tarasova)")]
+
+
+def test_search_protocols_without_author_keeps_bare_title(monkeypatch):
+    monkeypatch.setattr(repo, "list_protocols",
+        lambda s, q, page, page_size: ([{"id": "x2", "title": "ELISA", "source": "protocols.io",
+                                         "rank_score": 1.0, "product_count": 2,
+                                         "first_author": None}], 1))
+    result, items = tools.dispatch(_sess(), "search_protocols", {"query": "elisa"})
+    assert result["protocols"] == [{"id": "x2", "title": "ELISA", "product_count": 2,
+                                    "first_author": None}]
+    assert items == [tools.ReferencedItem("protocol", "x2", "ELISA")]
 
 def test_protocol_products_refs_protocol_and_products(monkeypatch):
     monkeypatch.setattr(repo, "protocol_materials",

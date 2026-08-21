@@ -14,12 +14,14 @@ def _client(monkeypatch, fn):
 
 def test_chat_returns_reply_and_items(monkeypatch):
     def fake(session, messages, **kw):
-        return agent.ChatReply("Here you go.", [ReferencedItem("protocol", "x1", "WB")])
+        return agent.ChatReply("Here you go.",
+                               [ReferencedItem("protocol", "x1", "WB", "https://www.protocols.io/view/wb")])
     resp = _client(monkeypatch, fake).post("/api/chat", json={"messages": [{"role": "user", "content": "hi"}]})
     assert resp.status_code == 200
     body = resp.json()
     assert body["reply"] == "Here you go."
-    assert body["items"] == [{"type": "protocol", "id": "x1", "name": "WB"}]
+    assert body["items"] == [{"type": "protocol", "id": "x1", "name": "WB",
+                              "url": "https://www.protocols.io/view/wb"}]
 
 
 def test_chat_503_when_no_key(monkeypatch):

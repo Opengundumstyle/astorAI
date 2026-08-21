@@ -32,7 +32,7 @@ def chat(body: ChatRequest, session: Session = Depends(get_session)) -> dict:
         raise HTTPException(status_code=503, detail=str(exc))
     return {
         "reply": reply.reply,
-        "items": [{"type": i.type, "id": i.id, "name": i.name} for i in reply.items],
+        "items": [{"type": i.type, "id": i.id, "name": i.name, "url": i.url} for i in reply.items],
     }
 
 
