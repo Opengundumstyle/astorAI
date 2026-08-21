@@ -131,9 +131,12 @@ Render polls `healthCheckPath` to gate every rollout. It must not touch Postgres
 Create `tests/api/test_healthz.py`:
 
 ```python
+import inspect
+
 from fastapi.testclient import TestClient
 
 from astor.api.main import create_app
+from astor.api.routers.health import healthz
 
 
 def test_healthz_returns_ok():
@@ -142,13 +145,18 @@ def test_healthz_returns_ok():
     assert resp.json() == {"ok": True}
 
 
-def test_healthz_does_not_touch_the_database():
-    # No get_session override is installed here. If the handler acquired a session
-    # it would try to reach Postgres; a passing assertion proves it does not.
-    app = create_app()
-    assert TestClient(app).get("/healthz").status_code == 200
-    route = next(r for r in app.routes if getattr(r, "path", None) == "/healthz")
-    assert route.dependant.dependencies == []
+def test_healthz_is_registered_on_the_app():
+    # NOTE: do not introspect `app.routes` for this. FastAPI 0.139+ does not flatten
+    # included routers into it — an included router appears as one opaque object with
+    # `path=None`, so a path scan finds nothing and tempts a duplicate inline route.
+    # The public OpenAPI schema is the version-stable way to ask what is registered.
+    assert "/healthz" in create_app().openapi()["paths"]
+
+
+def test_healthz_takes_no_dependencies():
+    # No parameters means no `Depends(...)`, hence no DB session: a Postgres blip
+    # cannot fail Render's health check and roll back a healthy deploy.
+    assert inspect.signature(healthz).parameters == {}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -178,21 +186,27 @@ def healthz() -> dict:
     return {"ok": True}
 ```
 
-In `src/astor/api/main.py`, add `health` to the router import (line 9) and register it first:
+In `src/astor/api/main.py`, add `health` to the router import (line 9) and register it first.
+Register it ONLY via `include_router` — do not also add an inline `@app.get("/healthz")`;
+two registrations would leave the router's copy shadowed and make the OpenAPI schema
+describe a handler that never runs. Note the module name `health` collides with the
+existing inline `def health()` inside `create_app`; import the module aliased rather than
+renaming that pre-existing function, which must stay exactly as it is:
 
 ```python
-from astor.api.routers import catalog, chat, dashboard, health, pricing, protocols, shopify_proxy
+from astor.api.routers import health as health_router
+from astor.api.routers import catalog, chat, dashboard, pricing, protocols, shopify_proxy
 ```
 
 ```python
-    app.include_router(health.router)
+    app.include_router(health_router.router)
     app.include_router(catalog.router)
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `python -m pytest tests/api/test_healthz.py -v`
-Expected: 2 passed.
+Expected: 3 passed.
 
 - [ ] **Step 5: Commit**
 
@@ -364,7 +378,8 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from astor.api.auth import require_admin_token
-from astor.api.routers import catalog, chat, dashboard, health, pricing, protocols, shopify_proxy
+from astor.api.routers import health as health_router
+from astor.api.routers import catalog, chat, dashboard, pricing, protocols, shopify_proxy
 from astor.config import settings
 ```
 
@@ -381,7 +396,7 @@ def create_app() -> FastAPI:
 ...and then register the routers:
 
 ```python
-    app.include_router(health.router)
+    app.include_router(health_router.router)
 
     # Internal, operator-facing surface: gated when ADMIN_TOKEN is set.
     admin = [Depends(require_admin_token)]
@@ -437,7 +452,9 @@ from astor.config import settings
 
 
 def _paths(app) -> set[str]:
-    return {getattr(r, "path", None) for r in app.routes}
+    # NOT `app.routes` — FastAPI 0.139+ leaves included routers unflattened there, so a
+    # path scan returns nothing and every `not in` assertion would pass vacuously.
+    return set(app.openapi()["paths"])
 
 
 def test_demo_chat_routes_present_by_default(monkeypatch):
