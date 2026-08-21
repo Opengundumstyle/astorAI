@@ -135,3 +135,35 @@ def test_widget_js_401_on_bad_signature(monkeypatch):
     resp = c.get("/proxy/widget.js",
                  params={"shop": "astor-dev.myshopify.com", "signature": "deadbeef"})
     assert resp.status_code == 401
+
+
+def test_proxy_chat_429_over_the_per_shop_cap(monkeypatch):
+    from astor.api.ratelimit import SlidingWindowLimiter
+    from astor.api.routers import shopify_proxy as proxy_router
+
+    monkeypatch.setattr(proxy_router, "_chat_limiter", SlidingWindowLimiter(limit=2))
+    c = _client(monkeypatch, lambda session, messages, **kw: agent.ChatReply("ok", []))
+    params = _signed({"shop": "astor-dev.myshopify.com"})
+    body = {"messages": [{"role": "user", "content": "hi"}]}
+
+    assert c.post("/proxy/chat", params=params, json=body).status_code == 200
+    assert c.post("/proxy/chat", params=params, json=body).status_code == 200
+    over = c.post("/proxy/chat", params=params, json=body)
+    assert over.status_code == 429
+
+
+def test_proxy_chat_cap_is_per_shop(monkeypatch):
+    from astor.api.ratelimit import SlidingWindowLimiter
+    from astor.api.routers import shopify_proxy as proxy_router
+
+    monkeypatch.setattr(proxy_router, "_chat_limiter", SlidingWindowLimiter(limit=1))
+    c = _client(monkeypatch, lambda session, messages, **kw: agent.ChatReply("ok", []))
+    body = {"messages": [{"role": "user", "content": "hi"}]}
+
+    assert c.post("/proxy/chat", params=_signed({"shop": "a.myshopify.com"}),
+                  json=body).status_code == 200
+    assert c.post("/proxy/chat", params=_signed({"shop": "a.myshopify.com"}),
+                  json=body).status_code == 429
+    # A different shop has its own bucket and is unaffected.
+    assert c.post("/proxy/chat", params=_signed({"shop": "b.myshopify.com"}),
+                  json=body).status_code == 200

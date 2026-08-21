@@ -12,12 +12,15 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from astor.api.deps import get_session
+from astor.api.ratelimit import SlidingWindowLimiter
 from astor.api.shopify_proxy import verify_app_proxy
 from astor.chat import agent
+from astor.config import settings
 
 router = APIRouter(prefix="/proxy", tags=["shopify-proxy"])
 
 _WIDGET_JS = Path(__file__).resolve().parent.parent / "static" / "widget.js"
+_chat_limiter = SlidingWindowLimiter(settings.proxy_chat_rate_per_min)
 
 
 class ChatMessage(BaseModel):
@@ -43,6 +46,13 @@ def chat(
 ) -> dict:
     """Storefront chat turn, verified as a signed App Proxy request. Reuses the same
     agent + response shape as /api/chat; non-streaming."""
+    # A missing shop (malformed proxy request that still verified) shares one bucket
+    # rather than escaping the cap entirely.
+    if not _chat_limiter.allow(ctx["shop"] or "__no_shop__"):
+        raise HTTPException(
+            status_code=429,
+            detail="Too many chat requests right now — please try again in a minute.",
+        )
     try:
         reply = agent.run_chat(
             session, [m.model_dump() for m in body.messages],
