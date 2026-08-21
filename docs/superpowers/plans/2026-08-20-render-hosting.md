@@ -750,9 +750,14 @@ def chat(
         raise HTTPException(status_code=503, detail=str(exc))
     return {
         "reply": reply.reply,
-        "items": [{"type": i.type, "id": i.id, "name": i.name} for i in reply.items],
+        "items": [{"type": i.type, "id": i.id, "name": i.name, "url": i.url} for i in reply.items],
     }
 ```
+
+> The `"url": i.url` field above arrived on `main` in `b5a2e0f` (clickable chat chips) after
+> this plan was written, and was merged into this branch in `bfd73fa`. Add ONLY the
+> rate-limit guard at the top of the handler; leave the rest of the body exactly as it
+> currently stands on disk. Do not retype the return statement from an older copy.
 
 - [ ] **Step 8: Run the endpoint tests, then the whole suite**
 
