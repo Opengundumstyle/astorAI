@@ -1,0 +1,47 @@
+# Render Blueprint — provisions the Astor engine + its Postgres in one connect.
+# Committed, so it holds NO secrets: every `sync: false` var is set in the dashboard.
+# Docs: https://render.com/docs/blueprint-spec
+services:
+  - type: web
+    name: astor-engine
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: starter          # always-on; the free plan sleeps and would cold-start shoppers
+    region: oregon
+    branch: main
+    autoDeployTrigger: commit
+    healthCheckPath: /healthz
+    envVars:
+      # Render injects a bare postgres:// URL; Settings normalizes it to +psycopg.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: astor-db
+          property: connectionString
+      # The unsigned demo chat routes stay unregistered in production.
+      - key: ENABLE_DEMO_CHAT
+        value: "false"
+      - key: LOG_LEVEL
+        value: INFO
+      # Dashboard-set secrets.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SHOPIFY_APP_PROXY_SECRET
+        sync: false
+      - key: SHOPIFY_CLIENT_SECRET
+        sync: false
+      - key: ADMIN_TOKEN          # gates the whole /api/* surface
+        sync: false
+      # Fail closed: without ADMIN_TOKEN the app refuses to boot, the health check
+      # fails, and Render keeps serving the previous deploy.
+      - key: ADMIN_TOKEN_REQUIRED
+        value: "true"
+
+databases:
+  - name: astor-db
+    databaseName: astor
+    user: astor
+    plan: basic-256mb
+    region: oregon
+    diskSizeGB: 10               # live data is 342 MB; must be 1 or a multiple of 5
+    postgresMajorVersion: "16"   # matches the local pgvector/pgvector:pg16 dump
