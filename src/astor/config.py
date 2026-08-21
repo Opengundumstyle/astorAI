@@ -1,6 +1,7 @@
 """Centralised settings (twelve-factor: all config from env)."""
 from __future__ import annotations
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -8,6 +9,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://astor:astor@localhost:5432/astor"
+
+    @field_validator("database_url")
+    @classmethod
+    def _force_psycopg_driver(cls, v: str) -> str:
+        """Managed hosts (Render) inject a bare `postgres://` URL; SQLAlchemy needs an
+        explicit driver or it reaches for psycopg2, which this project does not install."""
+        for prefix in ("postgres://", "postgresql://"):
+            if v.startswith(prefix):
+                return "postgresql+psycopg://" + v[len(prefix):]
+        return v
 
     embeddings_provider: str = "dev"  # dev | voyage | openai
     embedding_dim: int = 1024
