@@ -120,11 +120,26 @@ def test_widget_has_required_behaviors():
     assert "having trouble reaching the assistant" in src
 
 
-def test_widget_chips_are_links_when_url_present():
+def test_widget_chips_drive_the_chat_not_external_links():
     src = WIDGET_JS.read_text()
-    assert "it.url" in src                # linked chip path exists
-    assert '"_blank"' in src              # opens in a new tab so chat state survives
-    assert "noopener" in src              # no window.opener leak to the target
+    # a chip click asks the assistant about that item (id-grounded), in the chat
+    assert "Tell me more about" in src
+    assert "id: " in src
+    # chips never navigate away from the storefront
+    assert "_blank" not in src and "it.url" not in src
+
+
+def test_widget_formats_bot_replies_safely():
+    src = WIDGET_JS.read_text()
+    assert "formatReply" in src            # bot text goes through the formatter
+    assert "&amp;" in src and "&lt;" in src  # HTML-escaped before any innerHTML
+    assert "• " in src                     # markdown/hyphen list markers become bullets
+
+
+def test_widget_more_chip_expands_remaining():
+    src = WIDGET_JS.read_text()
+    assert "astor-chip-more" in src
+    assert "expandMore" in src            # the "+N more" chip reveals the hidden chips
 
 
 def test_widget_review_fixes():
