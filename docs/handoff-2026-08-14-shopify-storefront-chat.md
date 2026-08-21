@@ -69,9 +69,15 @@ Fixes the "feels like a smarter Google" problem: the bot deflected on anything o
 - Engine runs locally: `uvicorn astor.api.main:app --port 8000` (reads `.env`).
   **Restart gotcha:** kill *all* listeners on 8000 (`lsof -ti tcp:8000 | xargs kill`) —
   stale uvicorn processes can hold the port so a restart silently fails to take over.
-- Public exposure is a **free `cloudflared` quick tunnel** → **ephemeral URL** that changes
-  on every restart. Each change requires updating the Shopify app's App Proxy **Proxy URL**
-  and **releasing a new version**. This whack-a-mole is the next thing to kill (see below).
+- Public exposure is a **stable ngrok tunnel** on the account's free dev domain
+  **`https://spiritual-scribe-treble.ngrok-free.dev`** → `localhost:8000` (runs without
+  accruing endpoint hours). The URL is **permanent** — set once in the Shopify App Proxy
+  Proxy URL (`…/proxy`) and never re-edited. The ngrok process must be *running*, but a
+  restart returns the SAME URL, so restarts no longer touch Shopify. Bring it back with:
+  `ngrok http 8000 --url=https://spiritual-scribe-treble.ngrok-free.dev`
+  (ngrok authtoken already configured in `~/Library/Application Support/ngrok/ngrok.yml`).
+  Verified live: the storefront widget answers through this domain. (Earlier we used an
+  ephemeral `cloudflared` quick tunnel whose URL changed on every restart — retired.)
 - Shopify: a **Partner dev app "Astor Assistant"** (App Proxy: prefix `apps`, subpath
   `astor`, Proxy URL → the tunnel `/proxy`) installed on a free **dev store `astor-dev`**.
   Secrets (app API secret, store password) live in `.env` / the dev store admin — **not**
@@ -81,10 +87,9 @@ Fixes the "feels like a smarter Google" problem: the bot deflected on anything o
     **Astor Assistant** + the `astor-dev` store. Use the org that contains Astor Assistant.
 
 ## Open follow-ups (next candidates)
-- **Stable tunnel URL** (in progress): move off ephemeral `trycloudflare` to a fixed URL
-  (recommended: ngrok free **static domain**) so the Shopify Proxy URL is set once and never
-  re-edited. Real end state is hosting the engine (sub-project #3), which removes the tunnel
-  entirely.
+- **Stable tunnel URL**: DONE — ngrok dev domain `spiritual-scribe-treble.ngrok-free.dev`
+  (see Live environment). Real end state is still hosting the engine (sub-project #3), which
+  removes the tunnel entirely.
 - **Move 2-B — matching-quality overhaul**: only 3 of ~30 trypsin material mentions are
   SKU-linked; normalize noisy SKU/material text before embedding + add a lexical fallback +
   re-backfill the 827 `protocol_material_links`. Improves the buy-the-product side and the
