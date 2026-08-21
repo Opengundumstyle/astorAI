@@ -21,5 +21,7 @@ def require_admin_token(x_admin_token: str | None = Header(default=None)) -> Non
     expected = settings.admin_token
     if not expected:
         return
-    if not x_admin_token or not hmac.compare_digest(x_admin_token, expected):
+    if not x_admin_token or not hmac.compare_digest(
+        x_admin_token.encode("utf-8", "surrogateescape"), expected.encode("utf-8")
+    ):
         raise HTTPException(status_code=401, detail="invalid or missing admin token")

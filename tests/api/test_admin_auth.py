@@ -2,6 +2,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from astor.api import repo
+from astor.api.auth import require_admin_token
 from astor.api.deps import get_session
 from astor.api.main import create_app
 from astor.config import settings
@@ -14,6 +15,37 @@ def _client(monkeypatch):
     app.dependency_overrides[get_session] = lambda: None
     monkeypatch.setattr(repo, "get_stats", lambda session: {"products": 0})
     return TestClient(app)
+
+
+def _effective_api_routes(app):
+    """Flatten the live route table under `/api/*`, resolving FastAPI's lazy
+    per-include merge (`_IncludedRouter.effective_candidates()`) so that a
+    router-level `dependencies=[...]` actually shows up on each route's
+    resolved `dependant`. `app.routes` alone does NOT reflect this: an
+    included router appears there as an opaque `_IncludedRouter` whose
+    wrapped routes still carry their pre-merge (ungated) dependant.
+
+    Returns {path: set-of-dependency-callables}.
+    """
+
+    def walk(routes):
+        for route in routes:
+            if type(route).__name__ == "_IncludedRouter":
+                yield from walk(route.effective_candidates())
+            elif hasattr(route, "routes"):
+                yield from walk(route.routes)
+            else:
+                yield route
+
+    found: dict[str, set] = {}
+    for route in walk(app.routes):
+        path = getattr(route, "path", None)
+        if not path or not path.startswith("/api"):
+            continue
+        dependant = getattr(route, "dependant", None)
+        calls = {d.call for d in dependant.dependencies} if dependant else set()
+        found[path] = calls
+    return found
 
 
 def test_api_route_401s_without_token_when_configured(monkeypatch):
@@ -68,6 +100,29 @@ def test_create_app_starts_when_token_required_and_present(monkeypatch):
     monkeypatch.setattr(settings, "admin_token_required", True)
     monkeypatch.setattr(settings, "admin_token", TOKEN)
     assert create_app() is not None
+
+
+def test_non_ascii_token_is_rejected_cleanly(monkeypatch):
+    # hmac.compare_digest raises TypeError on non-ASCII str input; an anonymous
+    # request must never be able to raise inside the auth dependency (500s an
+    # unauthenticated request, and would brick the whole /api surface if an
+    # operator ever generated a token containing a non-ASCII character).
+    monkeypatch.setattr(settings, "admin_token", TOKEN)
+    client = _client(monkeypatch)
+    resp = client.get("/api/stats", headers=[(b"x-admin-token", b"n\xf8pe")])
+    assert resp.status_code == 401
+
+
+def test_every_api_route_is_gated(monkeypatch):
+    # Fail-closed by construction: a future router included without the admin
+    # dependency list must be caught here, not discovered live on a public URL.
+    monkeypatch.setattr(settings, "admin_token", TOKEN)
+    app = create_app()
+    routes = _effective_api_routes(app)
+    gated = {path for path, calls in routes.items() if require_admin_token in calls}
+    ungated = set(routes) - gated
+    assert len(gated) >= 12, "traversal found too few routes — it is not seeing the real table"
+    assert ungated == {"/api/health"}
 
 
 def test_proxy_routes_are_not_admin_gated(monkeypatch):
