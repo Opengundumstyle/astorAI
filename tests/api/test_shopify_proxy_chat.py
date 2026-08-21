@@ -2,15 +2,27 @@ import hashlib
 import hmac
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
+from astor.api.deps import get_session
+from astor.api.main import create_app
+from astor.api.ratelimit import SlidingWindowLimiter
+from astor.api.routers import shopify_proxy as proxy_router
 from astor.chat import agent
 from astor.chat.tools import ReferencedItem
 from astor.config import settings
-from astor.api.deps import get_session
-from astor.api.main import create_app
 
 SECRET = "s3cr3t"
+
+
+@pytest.fixture(autouse=True)
+def _fresh_chat_limiter(monkeypatch):
+    """Each test gets its own limiter — the module-level one is a process-wide singleton,
+    and without this every future /proxy/chat test would silently share one 20-call budget."""
+    monkeypatch.setattr(
+        proxy_router, "_chat_limiter",
+        SlidingWindowLimiter(proxy_router.settings.proxy_chat_rate_per_min))
 
 
 def _sign(params: dict[str, str], secret: str) -> str:
@@ -138,9 +150,6 @@ def test_widget_js_401_on_bad_signature(monkeypatch):
 
 
 def test_proxy_chat_429_over_the_per_shop_cap(monkeypatch):
-    from astor.api.ratelimit import SlidingWindowLimiter
-    from astor.api.routers import shopify_proxy as proxy_router
-
     monkeypatch.setattr(proxy_router, "_chat_limiter", SlidingWindowLimiter(limit=2))
     c = _client(monkeypatch, lambda session, messages, **kw: agent.ChatReply("ok", []))
     params = _signed({"shop": "astor-dev.myshopify.com"})
@@ -153,9 +162,6 @@ def test_proxy_chat_429_over_the_per_shop_cap(monkeypatch):
 
 
 def test_proxy_chat_cap_is_per_shop(monkeypatch):
-    from astor.api.ratelimit import SlidingWindowLimiter
-    from astor.api.routers import shopify_proxy as proxy_router
-
     monkeypatch.setattr(proxy_router, "_chat_limiter", SlidingWindowLimiter(limit=1))
     c = _client(monkeypatch, lambda session, messages, **kw: agent.ChatReply("ok", []))
     body = {"messages": [{"role": "user", "content": "hi"}]}
@@ -167,3 +173,16 @@ def test_proxy_chat_cap_is_per_shop(monkeypatch):
     # A different shop has its own bucket and is unaffected.
     assert c.post("/proxy/chat", params=_signed({"shop": "b.myshopify.com"}),
                   json=body).status_code == 200
+
+
+def test_proxy_chat_missing_shop_still_capped(monkeypatch):
+    # A malformed-but-signed proxy request with no `shop` param must fall back to a
+    # shared bucket, not escape the cap entirely.
+    monkeypatch.setattr(proxy_router, "_chat_limiter", SlidingWindowLimiter(limit=1))
+    c = _client(monkeypatch, lambda session, messages, **kw: agent.ChatReply("ok", []))
+    params = _signed({"logged_in_customer_id": "c1"})  # no "shop" key at all
+    body = {"messages": [{"role": "user", "content": "hi"}]}
+
+    assert c.post("/proxy/chat", params=params, json=body).status_code == 200
+    over = c.post("/proxy/chat", params=params, json=body)
+    assert over.status_code == 429
