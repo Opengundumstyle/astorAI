@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     chat_model: str = "claude-sonnet-5"  # storefront assistant (tool-use loop)
 
+    # The unsigned demo chat routes (/api/chat, /api/chat/stream) call Anthropic with
+    # no caller authentication. Fine on a laptop behind a tunnel; off on a public host.
+    enable_demo_chat: bool = True
+
     # -- Shopify house-catalog inbound feed (secrets stay in .env) ----------- #
     shopify_shop_domain: str | None = None      # "astor" | "astor.myshopify.com"
     shopify_admin_token: str | None = None       # legacy static token (existing admin apps)

@@ -36,7 +36,8 @@ def create_app() -> FastAPI:
     # Internal, operator-facing surface: gated when ADMIN_TOKEN is set.
     admin = [Depends(require_admin_token)]
     app.include_router(catalog.router, dependencies=admin)
-    app.include_router(chat.router, dependencies=admin)
+    if settings.enable_demo_chat:
+        app.include_router(chat.router, dependencies=admin)
     app.include_router(dashboard.router, dependencies=admin)
     app.include_router(pricing.router, dependencies=admin)
     app.include_router(protocols.router, dependencies=admin)
