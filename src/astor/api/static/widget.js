@@ -37,8 +37,8 @@
     "#astor-chat .astor-user{align-self:flex-end;background:#111;color:#fff}",
     "#astor-chat .astor-bot{align-self:flex-start;background:#fff;border:1px solid #e5e5e5;color:#111}",
     "#astor-chat .astor-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}",
-    "#astor-chat .astor-chip{font-size:12px;padding:3px 8px;border:1px solid #ddd;border-radius:999px;background:#f3f3f3;color:#333;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;display:inline-block}",
-    "#astor-chat a.astor-chip:hover{background:#e7e7e7;border-color:#bbb}",
+    "#astor-chat .astor-chip{font-size:12px;font-family:inherit;padding:3px 8px;border:1px solid #ddd;border-radius:999px;background:#f3f3f3;color:#333;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}",
+    "#astor-chat .astor-chip:hover{background:#e7e7e7;border-color:#bbb}",
     "#astor-chat .astor-chip-more{background:#111;color:#fff;border-color:#111}",
     "#astor-chat .astor-ex{align-self:flex-start;text-align:left;font-size:13px;padding:7px 10px;border:1px solid #ddd;border-radius:10px;background:#fff;color:#111;cursor:pointer}",
     "#astor-chat .astor-foot{display:flex;gap:6px;padding:10px;border-top:1px solid #eee;background:#fff}",
@@ -114,26 +114,33 @@
   }
 
   var MAX_CHIPS = 6;
+  function chipFor(it) {
+    // Clicking a chip stays in the chat: ask the assistant about that exact item.
+    // The id grounds the follow-up (titles alone are ambiguous — many protocols share one).
+    var b = document.createElement("button");
+    b.type = "button";
+    b.className = "astor-chip";
+    b.textContent = it.name;
+    b.addEventListener("click", function () {
+      submit('Tell me more about "' + it.name + '" (' + it.type + ' id: ' + it.id + ')');
+    });
+    return b;
+  }
   function addChips(container, items) {
     if (!items || !items.length) return;
     var chips = el("astor-chips");
-    items.slice(0, MAX_CHIPS).forEach(function (it) {
-      var chip;
-      if (it.url) {
-        // New tab so the shopper doesn't lose the chat (widget state dies on navigation).
-        chip = document.createElement("a");
-        chip.href = it.url;
-        chip.target = "_blank";
-        chip.rel = "noopener";
-        chip.className = "astor-chip";
-        chip.textContent = it.name;
-      } else {
-        chip = el("astor-chip", it.name);
-      }
-      chips.appendChild(chip);
-    });
+    items.slice(0, MAX_CHIPS).forEach(function (it) { chips.appendChild(chipFor(it)); });
     if (items.length > MAX_CHIPS) {
-      chips.appendChild(el("astor-chip astor-chip-more", "+" + (items.length - MAX_CHIPS) + " more"));
+      var more = document.createElement("button");
+      more.type = "button";
+      more.className = "astor-chip astor-chip-more";
+      more.textContent = "+" + (items.length - MAX_CHIPS) + " more";
+      more.addEventListener("click", function expandMore() {
+        more.remove();
+        items.slice(MAX_CHIPS).forEach(function (it) { chips.appendChild(chipFor(it)); });
+        scrollLog();
+      });
+      chips.appendChild(more);
     }
     container.appendChild(chips);
     scrollLog();
