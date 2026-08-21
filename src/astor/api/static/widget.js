@@ -91,6 +91,21 @@
     if (text != null) d.textContent = text;
     return d;
   }
+
+  function escHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  function formatReply(text) {
+    // The model is told to write plain text, but markdown still slips through;
+    // render the common bits instead of showing shoppers raw asterisks.
+    // Escape FIRST — the reply may quote user/tool text, never trust it as HTML.
+    var html = escHtml(text);
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+    html = html.split("\n").map(function (line) {
+      return line.replace(/^(\s*)[*•-]\s+/, "$1• ");
+    }).join("\n");
+    return html;
+  }
   function scrollLog() { log.scrollTop = log.scrollHeight; }
 
   function renderGreeting() {
@@ -173,7 +188,7 @@
       if (!r.ok) throw new Error("http " + r.status);
       return r.json();
     }).then(function (data) {
-      typingEl.textContent = data.reply || "";
+      typingEl.innerHTML = formatReply(data.reply || "");
       messages.push({ role: "assistant", content: data.reply || "" });
       addChips(typingEl, data.items);
       setBusy(false);

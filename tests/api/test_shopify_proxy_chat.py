@@ -117,6 +117,13 @@ def test_widget_chips_drive_the_chat_not_external_links():
     assert "_blank" not in src and "it.url" not in src
 
 
+def test_widget_formats_bot_replies_safely():
+    src = WIDGET_JS.read_text()
+    assert "formatReply" in src            # bot text goes through the formatter
+    assert "&amp;" in src and "&lt;" in src  # HTML-escaped before any innerHTML
+    assert "• " in src                     # markdown/hyphen list markers become bullets
+
+
 def test_widget_more_chip_expands_remaining():
     src = WIDGET_JS.read_text()
     assert "astor-chip-more" in src
