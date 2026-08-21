@@ -33,13 +33,15 @@ def _client(monkeypatch, run_chat_fn):
 
 def test_proxy_chat_returns_reply_and_items(monkeypatch):
     def fake(session, messages, **kw):
-        return agent.ChatReply("Here you go.", [ReferencedItem("protocol", "x1", "WB")])
+        return agent.ChatReply("Here you go.",
+                               [ReferencedItem("protocol", "x1", "WB", "https://www.protocols.io/view/wb")])
     c = _client(monkeypatch, fake)
     resp = c.post("/proxy/chat", params=_signed({"shop": "astor-dev.myshopify.com"}),
                   json={"messages": [{"role": "user", "content": "hi"}]})
     assert resp.status_code == 200
     assert resp.json() == {"reply": "Here you go.",
-                           "items": [{"type": "protocol", "id": "x1", "name": "WB"}]}
+                           "items": [{"type": "protocol", "id": "x1", "name": "WB",
+                                      "url": "https://www.protocols.io/view/wb"}]}
 
 
 def test_proxy_chat_threads_identity_into_request_context(monkeypatch):
@@ -104,6 +106,13 @@ def test_widget_has_required_behaviors():
     assert "astor-chat" in src
     # friendly error copy, no raw status codes shown to shoppers
     assert "having trouble reaching the assistant" in src
+
+
+def test_widget_chips_are_links_when_url_present():
+    src = WIDGET_JS.read_text()
+    assert "it.url" in src                # linked chip path exists
+    assert '"_blank"' in src              # opens in a new tab so chat state survives
+    assert "noopener" in src              # no window.opener leak to the target
 
 
 def test_widget_review_fixes():

@@ -17,6 +17,7 @@ class ReferencedItem:
     type: str   # "product" | "protocol"
     id: str
     name: str
+    url: str | None = None  # click target; attached by the agent after collection
 
 
 def _search_products(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:

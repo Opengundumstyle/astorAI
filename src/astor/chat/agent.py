@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from urllib.parse import quote
 
+from astor.api import repo
 from astor.chat import tools
 from astor.chat.tools import ReferencedItem
 from astor.config import settings
@@ -78,6 +80,24 @@ def _block_to_dict(b) -> dict:
     return {"type": btype}
 
 
+def _with_urls(session, items: list[ReferencedItem]) -> list[ReferencedItem]:
+    """Attach chip click targets: protocols → their protocols.io source page; products →
+    the shop's own search (no Shopify handle in the catalog yet, so a direct product URL
+    isn't buildable). Resolution failure must never break the reply — chips render unlinked."""
+    proto_ids = [i.id for i in items if i.type == "protocol"]
+    uris: dict[str, str] = {}
+    if proto_ids:
+        try:
+            uris = repo.protocol_source_uris(session, proto_ids)
+        except Exception:  # noqa: BLE001
+            log.warning("protocol url resolution failed", exc_info=True)
+    return [
+        replace(i, url="/search?q=" + quote(i.name, safe="")) if i.type == "product"
+        else replace(i, url=uris.get(i.id))
+        for i in items
+    ]
+
+
 def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
              request_context: dict | None = None) -> ChatReply:
     if not settings.anthropic_api_key:
@@ -100,7 +120,7 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
         )
         last_text = _text_of(resp) or last_text
         if resp.stop_reason != "tool_use":
-            return ChatReply(_text_of(resp), collected)
+            return ChatReply(_text_of(resp), _with_urls(session, collected))
 
         convo.append({"role": "assistant", "content": [_block_to_dict(b) for b in resp.content]})
         results = []
@@ -117,7 +137,8 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
         convo.append({"role": "user", "content": results})
 
     log.warning("chat loop hit max_iters=%d", max_iters)
-    return ChatReply(last_text or "Sorry — I couldn't finish that. Try rephrasing?", collected)
+    return ChatReply(last_text or "Sorry — I couldn't finish that. Try rephrasing?",
+                     _with_urls(session, collected))
 
 
 def _status_for(tool_names: list[str]) -> str:
@@ -148,7 +169,9 @@ def run_chat_stream(session, messages, *, client=None, model=None, max_iters: in
     seen: set[tuple[str, str]] = set()
 
     def _items_event():
-        return {"type": "items", "items": [{"type": i.type, "id": i.id, "name": i.name} for i in collected]}
+        return {"type": "items",
+                "items": [{"type": i.type, "id": i.id, "name": i.name, "url": i.url}
+                          for i in _with_urls(session, collected)]}
 
     try:
         for _ in range(max_iters):

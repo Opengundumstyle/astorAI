@@ -206,6 +206,16 @@ def list_protocols(session, q: str | None, page: int, page_size: int):
     return items, total
 
 
+def protocol_source_uris(session, ids: list[str]) -> dict[str, str]:
+    """Click-through targets for protocol chips (the protocols.io source page)."""
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(Protocol.id, Protocol.source_uri).where(Protocol.id.in_(ids))
+    ).all()
+    return {str(i): u for i, u in rows if u}
+
+
 def _normalize_material(term: str) -> str:
     """Lowercase and collapse runs of hyphen/slash/whitespace to a single space."""
     return re.sub(r"[-/\s]+", " ", (term or "").lower()).strip()

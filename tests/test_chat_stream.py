@@ -31,10 +31,12 @@ class _FakeClient:
     def __init__(self, scripted): self.messages = _FakeMessages(scripted)
 
 
-def _run(client, monkeypatch, dispatch=None):
+def _run(client, monkeypatch, dispatch=None, source_uris=None):
     monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
     if dispatch is not None:
         monkeypatch.setattr(tools, "dispatch", dispatch)
+    monkeypatch.setattr(agent.repo, "protocol_source_uris",
+                        lambda s, ids: dict(source_uris or {}))
     return list(agent.run_chat_stream(object(), [{"role": "user", "content": "hi"}], client=client))
 
 
@@ -59,10 +61,12 @@ def test_tool_round_then_text_emits_status_and_items(monkeypatch):
     dispatch = lambda s, name, args, request_context=None: (
         {"protocols": [{"id": "x1", "title": "WB", "product_count": 5}]},
         [ReferencedItem("protocol", "x1", "WB")])
-    events = _run(client, monkeypatch, dispatch)
+    events = _run(client, monkeypatch, dispatch,
+                  source_uris={"x1": "https://www.protocols.io/view/wb"})
     assert events[0] == {"type": "status", "text": "Searching protocols…"}
     assert {"type": "delta", "text": "Found it."} in events
-    assert {"type": "items", "items": [{"type": "protocol", "id": "x1", "name": "WB"}]} in events
+    assert {"type": "items", "items": [{"type": "protocol", "id": "x1", "name": "WB",
+                                        "url": "https://www.protocols.io/view/wb"}]} in events
     assert events[-1] == {"type": "done"}
     # second stream() call carried a tool_result back
     second = client.messages.calls[1]["messages"]
@@ -79,7 +83,8 @@ def test_items_deduped(monkeypatch):
         {}, [ReferencedItem("product", "p1", "A"), ReferencedItem("product", "p1", "A")])
     events = _run(client, monkeypatch, dispatch)
     items_ev = next(e for e in events if e["type"] == "items")
-    assert items_ev["items"] == [{"type": "product", "id": "p1", "name": "A"}]
+    assert items_ev["items"] == [{"type": "product", "id": "p1", "name": "A",
+                                  "url": "/search?q=A"}]
 
 
 def test_missing_key_yields_error(monkeypatch):
