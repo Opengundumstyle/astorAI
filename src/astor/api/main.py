@@ -18,7 +18,16 @@ def create_app() -> FastAPI:
             "ADMIN_TOKEN_REQUIRED is set but ADMIN_TOKEN is empty — refusing to start "
             "with an unauthenticated /api/* surface.")
 
-    app = FastAPI(title="AstorScientific API", version="0.1.0")
+    # A public host (ADMIN_TOKEN_REQUIRED) has no reason to publish its route map,
+    # including POST /api/ingest, to an anonymous visitor.
+    public_host = settings.admin_token_required
+    app = FastAPI(
+        title="AstorScientific API",
+        version="0.1.0",
+        docs_url=None if public_host else "/docs",
+        redoc_url=None if public_host else "/redoc",
+        openapi_url=None if public_host else "/openapi.json",
+    )
 
     app.add_middleware(
         CORSMiddleware,

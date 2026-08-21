@@ -957,6 +957,11 @@ The one-time operator steps. This task produces a committed runbook and then exe
 
 `pg_dump`/`pg_restore` run **inside the existing `astorai-db-1` container**, which guarantees a client version matching the source database and avoids installing Postgres client tools on the host.
 
+**Before you start, three things this runbook depends on:**
+- The Render database is internal-only (`ipAllowList: []`). The one-time `pg_restore` in Step 4 and any laptop-run pipeline in Step 8 require temporarily adding your IP in the Render dashboard's database Access Control page, and removing it again once you're done — an internet-reachable database is a visible, temporary act, never the committed default.
+- `POST /api/ingest` against the hosted engine will write junk embeddings unless `EMBEDDINGS_PROVIDER` and its matching API key are configured there. As of the whole-branch review fix, a configured real provider (`voyage`/`openai`) with a missing key now raises instead of silently degrading to `DevEmbedder` — that failure is the intended behavior, not a bug to work around.
+- `/docs`, `/redoc`, and `/openapi.json` are disabled on the Render instance (`ADMIN_TOKEN_REQUIRED=true` makes it a "public host"). Read the API schema against a local instance instead.
+
 **Files:**
 - Create: `docs/render-runbook.md`
 - Modify: `docs/handoff-2026-08-14-shopify-storefront-chat.md` (retire the ngrok section)
@@ -1120,4 +1125,5 @@ git push origin main
 - **Cost:** ~$7/mo web + ~$7/mo Postgres. The `starter` web plan is deliberate — `free` sleeps, which would cold-start real shoppers.
 - **Deploys:** `git push origin main` → Render rebuilds the Dockerfile → the `/healthz` check gates the rollout. A failing check holds the previous deploy.
 - **The internal Next.js dashboard** (`web/`) now needs `NEXT_PUBLIC_API_URL=https://astor-engine.onrender.com` *and* a way to send `X-Admin-Token`. It currently sends no header, so it will 401 against Render. It still works unchanged against the local API. Wiring the dashboard's auth is deliberately out of scope here — treat it as the next sub-project.
+- **The Task 5 rate cap is a per-STORE cap, not a per-visitor cap — this does not close the unmetered-bill hole by itself.** The limiter keys on `shop`, and Astor has exactly one shop, so all storefront visitors share one bucket. Two consequences: (a) one visitor sending 20 messages in a minute serves 429 to every other shopper for the rest of that window — a trivial self-inflicted denial of the revenue path; (b) 20/min sustained is ~28,800 chat turns/day, which is a three-figure daily Anthropic bill, not a cap. Tracked follow-ups: a per-visitor key (`f"{shop}:{customer_id or 'anon'}"`) with the current shop-wide bucket retained as an outer limit, plus a coarse daily counter to actually bound spend.
 - **Deferred to a later hardening pass** (spec §9): signed-`timestamp` freshness checks, request-size caps, the diverged alembic baseline, and a custom `astorscientific.us` subdomain.

@@ -54,3 +54,9 @@ def test_database_sized_for_the_existing_data():
     assert db["region"] == "oregon"
     # Live data is 342 MB; diskSizeGB must be 1 or a multiple of 5.
     assert db["diskSizeGB"] >= 10 and db["diskSizeGB"] % 5 == 0
+
+
+def test_database_is_not_open_to_the_internet():
+    db = _spec()["databases"][0]
+    assert "ipAllowList" in db, "omitting ipAllowList makes Render allow ALL IPs"
+    assert db["ipAllowList"] == [], "external access must be granted temporarily, not committed"

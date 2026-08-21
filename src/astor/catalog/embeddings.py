@@ -80,9 +80,29 @@ class OpenAIEmbedder:  # pragma: no cover - needs a live key
 
 
 def get_embedder() -> Embedder:
+    """Select the configured embedding provider.
+
+    A configured real provider with no key RAISES rather than degrading to
+    DevEmbedder: DevEmbedder's hash-based vectors are the right dimension, so
+    Postgres accepts them without complaint, which would otherwise let a
+    misconfigured deploy silently write junk embeddings (and junk `equivalences`
+    rows) into the production database with a 200 response.
+    """
     provider = settings.embeddings_provider.lower()
-    if provider == "voyage" and settings.voyage_api_key:
+    if provider == "dev":
+        return DevEmbedder()
+    if provider == "voyage":
+        if not settings.voyage_api_key:
+            raise RuntimeError(
+                "EMBEDDINGS_PROVIDER=voyage but VOYAGE_API_KEY is not set — refusing "
+                "to fall back to DevEmbedder and write meaningless vectors.")
         return VoyageEmbedder()
-    if provider == "openai" and settings.openai_api_key:
+    if provider == "openai":
+        if not settings.openai_api_key:
+            raise RuntimeError(
+                "EMBEDDINGS_PROVIDER=openai but OPENAI_API_KEY is not set — refusing "
+                "to fall back to DevEmbedder and write meaningless vectors.")
         return OpenAIEmbedder()
-    return DevEmbedder()
+    raise RuntimeError(
+        f"Unrecognized EMBEDDINGS_PROVIDER={settings.embeddings_provider!r} "
+        "(expected 'dev', 'voyage', or 'openai').")

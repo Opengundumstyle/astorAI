@@ -45,3 +45,8 @@ databases:
     region: oregon
     diskSizeGB: 10               # live data is 342 MB; must be 1 or a multiple of 5
     postgresMajorVersion: "16"   # matches the local pgvector/pgvector:pg16 dump
+    # Fail closed: no external IPs. The one-time pg_restore and any laptop-run
+    # pipeline require temporarily adding your IP in the Render dashboard and
+    # removing it afterwards, so an internet-reachable database is always a
+    # visible, temporary act rather than the committed default.
+    ipAllowList: []

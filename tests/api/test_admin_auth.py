@@ -125,6 +125,25 @@ def test_every_api_route_is_gated(monkeypatch):
     assert ungated == {"/api/health"}
 
 
+def test_docs_are_closed_on_a_public_host(monkeypatch):
+    # No reason to publish the route map (incl. POST /api/ingest) to an anonymous
+    # visitor on a public host.
+    monkeypatch.setattr(settings, "admin_token_required", True)
+    monkeypatch.setattr(settings, "admin_token", TOKEN)
+    client = _client(monkeypatch)
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
+
+
+def test_docs_stay_open_when_not_a_public_host(monkeypatch):
+    monkeypatch.setattr(settings, "admin_token_required", False)
+    client = _client(monkeypatch)
+    assert client.get("/docs").status_code == 200
+    assert client.get("/redoc").status_code == 200
+    assert client.get("/openapi.json").status_code == 200
+
+
 def test_proxy_routes_are_not_admin_gated(monkeypatch):
     # /proxy/* is guarded by the Shopify App Proxy signature, not the admin token.
     # Without a signature it must be 401 from verify_app_proxy (or 503 when no secret

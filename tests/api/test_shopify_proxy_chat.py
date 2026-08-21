@@ -2,7 +2,6 @@ import hashlib
 import hmac
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from astor.api.deps import get_session
@@ -14,15 +13,6 @@ from astor.chat.tools import ReferencedItem
 from astor.config import settings
 
 SECRET = "s3cr3t"
-
-
-@pytest.fixture(autouse=True)
-def _fresh_chat_limiter(monkeypatch):
-    """Each test gets its own limiter — the module-level one is a process-wide singleton,
-    and without this every future /proxy/chat test would silently share one 20-call budget."""
-    monkeypatch.setattr(
-        proxy_router, "_chat_limiter",
-        SlidingWindowLimiter(proxy_router.settings.proxy_chat_rate_per_min))
 
 
 def _sign(params: dict[str, str], secret: str) -> str:
