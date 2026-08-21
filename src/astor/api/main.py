@@ -6,7 +6,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from astor.api.routers import catalog, chat, dashboard, pricing, protocols, shopify_proxy
+from astor.api.routers import catalog, chat, dashboard, health, pricing, protocols, shopify_proxy
 
 
 def create_app() -> FastAPI:
@@ -20,9 +20,14 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/api/health")
-    def health() -> dict:
+    def _health() -> dict:
         return {"status": "ok"}
 
+    @app.get("/healthz")
+    def healthz_endpoint() -> dict:
+        return {"ok": True}
+
+    app.include_router(health.router)
     app.include_router(catalog.router)
     app.include_router(chat.router)
     app.include_router(dashboard.router)
