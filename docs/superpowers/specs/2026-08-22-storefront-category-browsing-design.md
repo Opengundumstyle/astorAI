@@ -1,7 +1,7 @@
 # Storefront category browsing — Design
 
 **Date:** 2026-08-22
-**Status:** Draft — awaiting review of the curated allowlist (§4) and the inhibitors decision (§4.1)
+**Status:** Draft — awaiting review of the curated allowlist (§4). Inhibitors decision RESOLVED (§4.1).
 **Scope:** Give the storefront assistant a shopper-legible answer to "what do you sell?", sourced
 from the store's existing curated Shopify collections rather than an invented taxonomy, behind a
 fail-closed allowlist. Adds real collection membership so browsing returns what is actually in a
@@ -77,12 +77,13 @@ category name. `flagship` marks the areas the assistant leads with.
 
 ### 4. Drafted allowlist — **REVIEW THIS**
 
-16 of 47, ordered by size. Counts are live `products_count` values; products can appear in more
+17 entries, ordered by size (16 existing collections plus one to be created — see §4.1). Counts are live `products_count` values; products can appear in more
 than one collection.
 
 | handle | display | count | flagship |
 |---|---|---|---|
 | `recombinant-proteins` | Recombinant Proteins | 9,207 | ✅ |
+| `biochemical-inhibitors` | Biochemical Inhibitors | ~2,046 | ✅ |
 | `common-lab-reagents` | Lab Reagents | 2,796 | |
 | `lab-supplies` | Lab Supplies | 2,341 | |
 | `plasticware` | Plasticware | 618 | |
@@ -120,25 +121,32 @@ Research-Grade Reagents)").
   `inoculation-spreader-and-needles`, `vaccum-filtration`, `endotoxin-detection-reagents-and-kits`,
   `bacterial-culture-reagent`, `sample-preparation-kit`, `cell-culture-plates-and-flasks`.
 
-### 4.1 Open decision: biochemical inhibitors have no collection — **NEEDS A DECISION**
+### 4.1 RESOLVED: create a Biochemical Inhibitors collection in Shopify
 
-The agreed framing is to lead with recombinant proteins **and biochemical inhibitors**. Proteins are
-the largest collection at 9,207. But `biochemical_inhibitors` is a `productType` with **2,046
-products and no corresponding Shopify collection**. It is the second-largest area of the catalog and
-cannot be offered through collections as they stand.
+The agreed framing leads with recombinant proteins **and biochemical inhibitors**. Proteins are the
+largest collection at 9,207, but `biochemical_inhibitors` was a `productType` with **2,046 products
+and no corresponding Shopify collection** — the second-largest area of the catalog, unreachable
+through collections.
 
-Three ways out, for the reviewer to pick:
+**Decision (2026-08-22): create the collection in Shopify.** This fixes it at the source, so
+storefront navigation and SEO benefit alongside the assistant, and the system keeps a single
+taxonomy rather than growing a `productType` fallback path.
 
-1. **Create the collection in Shopify** (recommended). Fixes it at the source, benefits storefront
-   navigation and SEO as well as the assistant, and keeps this design's single-source rule intact.
-   Requires merchandising work in the Shopify admin.
-2. **Allow a `productType` fallback entry** in the YAML (`source: product_type`, value
-   `biochemical_inhibitors`). Ships without Shopify work, but introduces a second taxonomy source
-   and weakens the "collections are the taxonomy" rule.
-3. **Ship with proteins as the only flagship** and treat inhibitors as a follow-up. Honest, but the
-   opening answer then under-sells roughly an eighth of the catalog.
+To create, in the Shopify admin — **Products → Collections → Create collection**:
 
-Option 1 is the only one that leaves the system with one taxonomy.
+- **Title:** `Biochemical Inhibitors`
+- **Handle:** `biochemical-inhibitors` (confirm in the SEO section; Shopify derives it from the
+  title, but the allowlist keys on the handle, so it must match exactly)
+- **Type: Automated**, with the condition **Product type is equal to `biochemical_inhibitors`**
+
+Automated rather than manual is deliberate: membership then tracks `productType` permanently, so
+newly ingested inhibitors join without anyone maintaining a list. It also means the collection's
+count will track the ~2,046 figure rather than drifting from it.
+
+**This is a prerequisite for the rollout in §10.** Until the collection exists, the ingest has
+nothing to attach, and `biochemical-inhibitors` behaves as an allowlisted-but-empty entry — omitted
+from `browse_categories` with a WARNING, per §8. The code is safe to ship before it exists; the
+opening answer is simply weaker until it does.
 
 ### 5. Tools
 
