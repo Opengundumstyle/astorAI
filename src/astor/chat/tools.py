@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from astor.api import repo
+from astor.api import repo, roles
 
 
 @dataclass(frozen=True)
@@ -20,11 +20,19 @@ class ReferencedItem:
     url: str | None = None  # click target; attached by the agent after collection
 
 
+def _public_specs(specs: dict | None) -> dict:
+    """Drop internal-only spec keys (underscore-prefixed, e.g. `_cost_basis`). The
+    role gate keeps `specs` wholesale, so nested internals need stripping here."""
+    return {k: v for k, v in (specs or {}).items() if not k.startswith("_")}
+
+
 def _search_products(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
     limit = int(args.get("limit") or 8)
     rows, _ = repo.list_products(session, args["query"], None, 1, limit)
-    products = [{"id": r["id"], "name": r["name"], "brand": r.get("brand"),
-                 "category": r.get("category")} for r in rows]
+    # Buyer gate, not a hand-picked field list: `roles` is the single authority on what
+    # a buyer may see, so a field added to the product DTO later is withheld from the
+    # assistant by default instead of silently reaching a shopper.
+    products = [roles.gate_product(r, roles.BUYER) for r in rows]
     items = [ReferencedItem("product", r["id"], r["name"]) for r in rows]
     return {"products": products}, items
 
@@ -72,8 +80,8 @@ def _product_detail(session, args, request_context=None) -> tuple[dict, list[Ref
     d = repo.get_product_detail(session, args["product_id"])
     if d is None:
         return {"error": "product not found"}, []
-    compact = {"id": d["id"], "name": d["name"], "brand": d.get("brand"),
-               "category": d.get("category"), "specs": d.get("specs", {})}
+    compact = roles.gate_detail(d, roles.BUYER)
+    compact["specs"] = _public_specs(compact.get("specs"))
     return compact, [ReferencedItem("product", d["id"], d["name"])]
 
 

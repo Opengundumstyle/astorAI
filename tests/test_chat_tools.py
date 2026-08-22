@@ -11,7 +11,10 @@ def test_search_products_is_compact_and_refs(monkeypatch):
             [{"id": "p1", "name": "BCA Kit", "brand": "Astor", "category": "antibodies",
               "astor_sku": "ASR-1", "mpn": None, "region": None, "offer_count": 0, "best_landed": None}], 1))
     result, items = tools.dispatch(_sess(), "search_products", {"query": "BCA"})
-    assert result["products"] == [{"id": "p1", "name": "BCA Kit", "brand": "Astor", "category": "antibodies"}]
+    # Shape is roles._PRODUCT_BUYER_KEYS — brand/mpn/region are withheld by the gate.
+    assert result["products"] == [{"id": "p1", "astor_sku": "ASR-1", "name": "BCA Kit",
+                                   "category": "antibodies", "offer_count": 0,
+                                   "best_landed": None}]
     assert items == [tools.ReferencedItem("product", "p1", "BCA Kit")]
 
 def test_search_protocols_refs(monkeypatch):
@@ -136,3 +139,96 @@ def test_flag_sourcing_request_demo_path_null_identity(monkeypatch):
     result, items = tools.dispatch(_sess(), "flag_sourcing_request", {"item": "X"})  # no request_context
     assert result["logged"] is True
     assert captured["shop"] is None and captured["customer_id"] is None and captured["email"] is None
+
+
+# --- Origin confidentiality -------------------------------------------------- #
+# roles.py states the rule: buyers must never receive product origin, supplier
+# identity, manufacturer brand/MPN, or cost internals. The chat tools are a buyer
+# surface, so what they hand the model is bounded by the same allowlist. These
+# guard the boundary, not the prompt: a prompt rule is a request, withholding the
+# data is a guarantee.
+
+_PRODUCT_ROW = {
+    "id": "p1", "name": "Anti-FLAG Antibody", "brand": "TribioScience",
+    "category": "antibodies", "astor_sku": "ASR-1", "mpn": "TB-4471",
+    "region": "CN", "origin": "CN", "offer_count": 2, "best_landed": 91.0,
+}
+
+_DETAIL_ROW = {
+    "id": "p1", "name": "Anti-FLAG Antibody", "brand": "TribioScience",
+    "category": "antibodies", "mpn": "TB-4471", "region": "CN",
+    "specs": {"Size": "100 ug", "_cost_basis": "unit_cost"},
+    "equivalents": [],
+}
+
+_FORBIDDEN = ("brand", "mpn", "origin", "region", "_cost_basis")
+
+
+def _leaked_keys(payload) -> set[str]:
+    """Every forbidden key anywhere in a nested payload, at any depth."""
+    found = set()
+    if isinstance(payload, dict):
+        for k, v in payload.items():
+            if k in _FORBIDDEN:
+                found.add(k)
+            found |= _leaked_keys(v)
+    elif isinstance(payload, (list, tuple)):
+        for v in payload:
+            found |= _leaked_keys(v)
+    return found
+
+
+def test_search_products_never_exposes_manufacturer_brand(monkeypatch):
+    monkeypatch.setattr(repo, "list_products",
+        lambda s, q, category, page, page_size: ([dict(_PRODUCT_ROW)], 1))
+    result, _ = tools.dispatch(_sess(), "search_products", {"query": "FLAG"})
+    assert "brand" not in result["products"][0]
+    assert result["products"][0]["name"] == "Anti-FLAG Antibody"
+
+
+def test_product_detail_never_exposes_manufacturer_brand(monkeypatch):
+    monkeypatch.setattr(repo, "get_product_detail", lambda s, pid: dict(_DETAIL_ROW))
+    result, _ = tools.dispatch(_sess(), "product_detail", {"product_id": "p1"})
+    assert "brand" not in result
+    assert result["name"] == "Anti-FLAG Antibody"
+
+
+def test_product_detail_strips_internal_spec_keys_but_keeps_real_ones(monkeypatch):
+    monkeypatch.setattr(repo, "get_product_detail", lambda s, pid: dict(_DETAIL_ROW))
+    result, _ = tools.dispatch(_sess(), "product_detail", {"product_id": "p1"})
+    assert result["specs"] == {"Size": "100 ug"}
+
+
+def test_no_product_tool_leaks_confidential_fields_at_any_depth(monkeypatch):
+    """Guard for tools that don't exist yet: a future tool that forwards a raw repo
+    row fails here, which a per-tool assertion would not catch."""
+    monkeypatch.setattr(repo, "list_products",
+        lambda s, q, category, page, page_size: ([dict(_PRODUCT_ROW)], 1))
+    monkeypatch.setattr(repo, "get_product_detail", lambda s, pid: dict(_DETAIL_ROW))
+    monkeypatch.setattr(repo, "protocol_materials",
+        lambda s, pid, *, reviewed_only, limit: {
+            "protocol_title": "WB", "source_uri": "u",
+            "materials": [{"material_name": "BCA", "product_id": "p9",
+                           "product_name": "BCA Kit", "brand": "GenDEPOT",
+                           "confidence": 0.9, "kind": "exact"}]})
+    monkeypatch.setattr(repo, "product_protocols",
+        lambda s, pid, *, reviewed_only, limit: {
+            "product_name": "BCA Kit", "brand": "GenDEPOT",
+            "protocols": [{"protocol_id": "x1", "title": "WB"}]})
+
+    calls = [
+        ("search_products", {"query": "FLAG"}),
+        ("product_detail", {"product_id": "p1"}),
+        ("protocol_products", {"protocol_id": "x1"}),
+        ("product_protocols", {"product_id": "p1"}),
+    ]
+    for name, args in calls:
+        result, _ = tools.dispatch(_sess(), name, args)
+        assert _leaked_keys(result) == set(), f"{name} leaked {_leaked_keys(result)}"
+
+
+def test_system_prompt_forbids_naming_manufacturers():
+    from astor.chat.agent import SYSTEM
+    lowered = SYSTEM.lower()
+    assert "confidential" in lowered
+    assert "manufacturer" in lowered
