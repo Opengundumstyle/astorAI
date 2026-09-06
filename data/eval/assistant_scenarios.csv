@@ -1,0 +1,8 @@
+question,expect,must_match,notes
+what emem medium do you have?,product,EMEM,"review doc item 4: assistant said Astor carries no EMEM; 2 products existed"
+"We are culturing HEK293 cells, do you have DMEM medium?",product,DMEM,"review doc screenshot: said no DMEM; 32 products existed"
+show me a 6 well cell culture plate,product,\b6[\s-]?well,"found live 2026-09-05: returned 96-well plates and denied 6-well existed"
+do you sell trypsin EDTA for passaging cells?,product,trypsin,phrasing wraps the product name in a sentence
+I need 500ml of DMEM with high glucose,product,500,numeric attribute must be honoured
+do you carry Eagle's Minimum Essential Medium?,product,minimum essential medium,ASCII apostrophe against the catalog's curly one
+do you stock unobtainium phosphate buffer?,none,unobtainium,a product Astor genuinely does not carry must not be invented

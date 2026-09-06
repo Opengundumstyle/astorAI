@@ -9,10 +9,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, select, text
 
 from astor.api import schemas
-from astor.catalog import matcher
+from astor.catalog import matcher, search
 from astor.catalog.embeddings import get_embedder
 from astor.catalog.ingestion import ingest
 from astor.db.models import (
@@ -74,23 +74,76 @@ def get_stats(session) -> dict:
                              avg_savings=round(avg_savings, 4))
 
 
+def _token_superset(columns, toks: list[str]):
+    """Semantics-free SQL prefilter: rows that could possibly match.
+
+    Mandatory (digit-bearing) tokens are ANDed because `search` will require
+    them anyway; the rest are ORed, since a row needs only partial coverage to
+    qualify. Every real rule -- word boundaries, IDF weighting, the coverage
+    floor, ranking -- is applied by `search` over the rows this returns, so no
+    semantic decision is expressed twice.
+    """
+    def any_column(tok: str):
+        like = f"%{tok}%"
+        cond = columns[0].ilike(like)
+        for col in columns[1:]:
+            cond = cond | col.ilike(like)
+        return cond
+
+    mandatory = [t for t in toks if search.is_mandatory(t)]
+    soft = [t for t in toks if not search.is_mandatory(t)]
+    conds = [any_column(t) for t in mandatory]
+    if soft:
+        soft_cond = any_column(soft[0])
+        for t in soft[1:]:
+            soft_cond = soft_cond | any_column(t)
+        conds.append(soft_cond)
+    return and_(*conds)
+
+
+def _doc_frequencies(session, entity, columns, toks: list[str]) -> dict[str, int]:
+    """Rows containing each token as a substring — the same over-estimate
+    `search.df_match` makes, so harness and production agree."""
+    df: dict[str, int] = {}
+    for tok in toks:
+        like = f"%{tok}%"
+        cond = columns[0].ilike(like)
+        for col in columns[1:]:
+            cond = cond | col.ilike(like)
+        df[tok] = session.scalar(
+            select(func.count()).select_from(entity).where(cond)) or 0
+    return df
+
+
 def list_products(session, q, category, page, page_size) -> tuple[list[dict], int]:
     stmt = select(Product)
     count_stmt = select(func.count(Product.id))
-    if q:
-        like = f"%{q}%"
-        cond = Product.name.ilike(like) | Product.brand.ilike(like) | Product.mpn.ilike(like)
-        stmt = stmt.where(cond)
-        count_stmt = count_stmt.where(cond)
     if category:
         stmt = stmt.where(Product.category == category)
         count_stmt = count_stmt.where(Product.category == category)
 
-    total = session.scalar(count_stmt) or 0
-    rows = session.scalars(
-        stmt.order_by(Product.created_at.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    ).all()
+    toks = search.tokens(q)
+    if q and toks:
+        cols = [Product.name, Product.brand, Product.mpn]
+        candidates = session.scalars(
+            stmt.where(_token_superset(cols, toks))
+        ).all()
+        n_docs = session.scalar(select(func.count(Product.id))) or len(candidates)
+        rows, total = search.page(
+            candidates, q, page=page, page_size=page_size,
+            df=_doc_frequencies(session, Product, cols, toks), n_docs=n_docs,
+            haystack=lambda p: f"{p.name} {p.brand or ''} {p.mpn or ''}",
+            name_of=lambda p: p.name,
+        )
+    elif q:
+        # A query of pure punctuation matches nothing rather than everything.
+        rows, total = [], 0
+    else:
+        total = session.scalar(count_stmt) or 0
+        rows = session.scalars(
+            stmt.order_by(Product.created_at.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all()
 
     ids = [str(p.id) for p in rows]
     counts = _offer_count_map(session, ids)
@@ -187,16 +240,31 @@ def list_protocols(session, q: str | None, page: int, page_size: int):
         link_count.label("product_count"),
     ).where(Protocol.servable.is_(True))
     count_stmt = select(func.count(Protocol.id)).where(Protocol.servable.is_(True))
-    if q:
-        like = f"%{q}%"
-        base = base.where(Protocol.title.ilike(like))
-        count_stmt = count_stmt.where(Protocol.title.ilike(like))
 
-    total = session.scalar(count_stmt) or 0
-    rows = session.execute(
-        base.order_by(link_count.desc(), Protocol.rank_score.desc())
-        .offset((page - 1) * page_size).limit(page_size)
-    ).all()
+    toks = search.tokens(q)
+    if q and toks:
+        # Same delegation as list_products: SQL narrows, `search` decides. Ordered
+        # by relevance first, then the existing catalog-connectedness tiebreak.
+        cols = [Protocol.title]
+        candidates = session.execute(
+            base.where(_token_superset(cols, toks))
+            .order_by(link_count.desc(), Protocol.rank_score.desc())
+        ).all()
+        n_docs = session.scalar(
+            select(func.count(Protocol.id)).where(Protocol.servable.is_(True))) or len(candidates)
+        rows, total = search.page(
+            candidates, q, page=page, page_size=page_size,
+            df=_doc_frequencies(session, Protocol, cols, toks), n_docs=n_docs,
+            haystack=lambda r: r.title, name_of=lambda r: r.title,
+        )
+    elif q:
+        rows, total = [], 0
+    else:
+        total = session.scalar(count_stmt) or 0
+        rows = session.execute(
+            base.order_by(link_count.desc(), Protocol.rank_score.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all()
     items = [
         {"id": str(i), "title": t, "source": s,
          "rank_score": round(float(r), 2), "product_count": int(pc),
