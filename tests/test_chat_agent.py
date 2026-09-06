@@ -183,3 +183,45 @@ def test_agent_loop_flags_sourcing_with_server_identity(monkeypatch):
     assert captured["shop"] == "astor-dev.myshopify.com"
     assert captured["customer_id"] == "c9"
     assert out.reply.startswith("Logged")
+
+
+class _FailingMessages:
+    """A provider that is up but refusing — billing, rate limit, outage."""
+    def __init__(self, exc): self._exc = exc
+    def create(self, **kwargs): raise self._exc
+    def stream(self, **kwargs): raise self._exc
+
+
+class _FailingClient:
+    def __init__(self, exc): self.messages = _FailingMessages(exc)
+
+
+def test_provider_failure_raises_assistant_unavailable(monkeypatch):
+    """Observed in production 2026-09-05: the Anthropic account ran out of
+    credit, the SDK raised, and every storefront turn became a bare HTTP 500."""
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    client = _FailingClient(RuntimeError("credit balance is too low"))
+    with pytest.raises(agent.AssistantUnavailable):
+        agent.run_chat(object(), [{"role": "user", "content": "hi"}], client=client)
+
+
+def test_assistant_unavailable_does_not_leak_the_provider_message(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    client = _FailingClient(RuntimeError("credit balance is too low — billing id 42"))
+    with pytest.raises(agent.AssistantUnavailable) as excinfo:
+        agent.run_chat(object(), [{"role": "user", "content": "hi"}], client=client)
+    assert "credit" not in str(excinfo.value).lower()
+    assert "billing" not in str(excinfo.value).lower()
+
+
+def test_assistant_unavailable_is_a_runtime_error_so_existing_handlers_still_catch_it():
+    assert issubclass(agent.AssistantUnavailable, RuntimeError)
+
+
+def test_stream_reports_provider_failure_without_leaking_the_message(monkeypatch):
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    client = _FailingClient(RuntimeError("credit balance is too low"))
+    events = list(agent.run_chat_stream(object(), [{"role": "user", "content": "hi"}],
+                                        client=client))
+    assert events[-1]["type"] == "error"
+    assert "credit" not in events[-1]["detail"].lower()

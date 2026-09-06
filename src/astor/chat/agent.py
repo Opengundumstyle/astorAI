@@ -70,6 +70,31 @@ SYSTEM = (
 )
 
 
+class AssistantUnavailable(RuntimeError):
+    """The model provider could not be reached or refused the request.
+
+    Raised for anything the provider throws — billing, rate limits, an outage, a
+    network blip. A RuntimeError subclass so the routers' existing
+    `except RuntimeError -> 503` contract keeps working unchanged.
+
+    The message is deliberately generic: it is shown to shoppers. On 2026-09-05
+    the Anthropic account ran out of credit and every storefront turn became a
+    bare HTTP 500, because only the missing-key case was ever translated. The
+    real cause is logged, never returned.
+    """
+
+
+UNAVAILABLE_MESSAGE = (
+    "The assistant is temporarily unavailable — please try again in a moment."
+)
+
+
+def _provider_failure(exc: Exception) -> AssistantUnavailable:
+    log.error("assistant provider call failed: %s: %s", type(exc).__name__, exc,
+              exc_info=True)
+    return AssistantUnavailable(UNAVAILABLE_MESSAGE)
+
+
 @dataclass
 class ChatReply:
     reply: str
@@ -126,11 +151,14 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
     last_text = ""
 
     for _ in range(max_iters):
-        resp = client.messages.create(
-            model=model, max_tokens=1024, system=SYSTEM,
-            tools=tools.TOOL_SCHEMAS, messages=convo,
-            thinking={"type": "disabled"},
-        )
+        try:
+            resp = client.messages.create(
+                model=model, max_tokens=1024, system=SYSTEM,
+                tools=tools.TOOL_SCHEMAS, messages=convo,
+                thinking={"type": "disabled"},
+            )
+        except Exception as exc:  # noqa: BLE001 — every provider failure looks the same to a shopper
+            raise _provider_failure(exc) from exc
         last_text = _text_of(resp) or last_text
         if resp.stop_reason != "tool_use":
             return ChatReply(_text_of(resp), _with_urls(session, collected))
@@ -222,4 +250,5 @@ def run_chat_stream(session, messages, *, client=None, model=None, max_iters: in
         yield _items_event()
         yield {"type": "done"}
     except Exception as exc:  # noqa: BLE001 — surface as a stream event, never break the connection
-        yield {"type": "error", "detail": f"{type(exc).__name__}: {exc}"}
+        log.error("assistant stream failed: %s: %s", type(exc).__name__, exc, exc_info=True)
+        yield {"type": "error", "detail": UNAVAILABLE_MESSAGE}

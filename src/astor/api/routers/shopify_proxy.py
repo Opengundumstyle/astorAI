@@ -5,6 +5,7 @@ Shopify appends the storefront subpath, so `store/apps/astor/ping` -> `/proxy/pi
 """
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -17,6 +18,7 @@ from astor.api.shopify_proxy import verify_app_proxy
 from astor.chat import agent
 from astor.config import settings
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix="/proxy", tags=["shopify-proxy"])
 
 _WIDGET_JS = Path(__file__).resolve().parent.parent / "static" / "widget.js"
@@ -57,8 +59,14 @@ def chat(
         reply = agent.run_chat(
             session, [m.model_dump() for m in body.messages],
             request_context={"shop": ctx["shop"], "customer_id": ctx["customer_id"]})
-    except RuntimeError as exc:
+    except agent.AssistantUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except Exception as exc:  # noqa: BLE001
+        # Storefront surface: a shopper gets one calm sentence, never a stack of
+        # internals and never a bare 500. The detail goes to the logs.
+        log.error("storefront chat turn failed: %s: %s", type(exc).__name__, exc,
+                  exc_info=True)
+        raise HTTPException(status_code=503, detail=agent.UNAVAILABLE_MESSAGE)
     return {
         "reply": reply.reply,
         "items": [{"type": i.type, "id": i.id, "name": i.name, "url": i.url} for i in reply.items],

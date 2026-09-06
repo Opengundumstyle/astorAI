@@ -191,3 +191,28 @@ def test_proxy_chat_missing_shop_still_capped(monkeypatch):
     assert c.post("/proxy/chat", params=params, json=body).status_code == 200
     over = c.post("/proxy/chat", params=params, json=body)
     assert over.status_code == 429
+
+
+def test_proxy_chat_returns_503_not_500_when_the_model_provider_fails(monkeypatch):
+    """A shopper must never be shown 'Internal Server Error' because an upstream
+    provider is down or unpaid. Production returned a bare 500 on 2026-09-05."""
+    def fake(session, messages, **kw):
+        raise agent.AssistantUnavailable("The assistant is temporarily unavailable.")
+
+    c = _client(monkeypatch, fake)
+    resp = c.post("/proxy/chat", params=_signed({"shop": "astor-dev.myshopify.com"}),
+                  json={"messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 503
+    assert "temporarily unavailable" in resp.json()["detail"].lower()
+
+
+def test_proxy_chat_never_leaks_an_unexpected_error_to_the_shopper(monkeypatch):
+    def fake(session, messages, **kw):
+        raise ValueError("psycopg: FATAL password authentication failed for user astor")
+
+    c = _client(monkeypatch, fake)
+    resp = c.post("/proxy/chat", params=_signed({"shop": "astor-dev.myshopify.com"}),
+                  json={"messages": [{"role": "user", "content": "hi"}]})
+    assert resp.status_code == 503
+    assert "password" not in resp.json()["detail"].lower()
+    assert "psycopg" not in resp.json()["detail"].lower()
