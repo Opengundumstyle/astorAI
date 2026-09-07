@@ -85,7 +85,7 @@ def failing(cells: list[Cell], *, calibrated: bool = True) -> list[Cell]:
 
 
 def _header(key_label: str = "row") -> str:
-    return (f"{key_label:<5}{'dim':<6}{'pass':>8}{'rate':>8}"
+    return (f"{key_label:<6}{'dim':<6}{'pass':>8}{'rate':>8}"
             f"{'95% CI':>16}{'bar':>7}  status")
 
 
@@ -114,7 +114,7 @@ def render_scorecard(cells: list[Cell], *, calibrated: bool, gate: bool = True,
         if uncalibrated:
             status += " (uncalibrated)"
         lines.append(
-            f"{cell.row:<5}{cell.dim:<6}{cell.passes:>4}/{cell.runs:<3}"
+            f"{cell.row:<6}{cell.dim:<6}{cell.passes:>4}/{cell.runs:<3}"
             f"{cell.rate:>8.2f}{f'[{low:.2f}, {high:.2f}]':>16}{bar}  {status}"
         )
 
@@ -124,7 +124,7 @@ def render_scorecard(cells: list[Cell], *, calibrated: bool, gate: bool = True,
     else:
         lines += [_RULE, "no cell below its bar" if not failures else "below bar:"]
     lines += [f"  - {c.row}/{c.dim}: {c.rate:.2f} < {c.bar:.2f}" for c in failures]
-    if not calibrated and any(c.dim == "D5" for c in cells):
+    if gate and not calibrated and any(c.dim == "D5" for c in cells):
         lines.append("  ! D5 is uncalibrated — no human agreement measured. "
                      "Treat those cells as indicative, not as a result: they are "
                      "reported here and excluded from the gate.")
