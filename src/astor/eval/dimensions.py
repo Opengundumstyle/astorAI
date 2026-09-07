@@ -12,6 +12,9 @@ Limitations.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+
+from astor.eval import assistant
 
 # --------------------------------------------------------------------------- #
 # D8 — format. The prompt promises plain text, 2-5 sentences, 1-3 named items.
@@ -139,8 +142,6 @@ def numeric_violations(reply: str) -> list[str]:
 #   D4B  the token appears nowhere it was given. Recall, inference or
 #        confirmation. This is the model failure, and it is blocking.
 # --------------------------------------------------------------------------- #
-from dataclasses import dataclass   # noqa: E402  (kept beside its only user)
-
 HOUSE_BRANDS = frozenset({"astor scientific", "astorscientific"})
 
 # Brands that are also major third-party suppliers. The prompt's POINT clause
@@ -191,3 +192,49 @@ def confidentiality_leaks(reply: str, item_names: list[str], denylist: list[str]
         seen.add(key)
         leaks.append(Leak(token, "D4A" if key in names else "D4B"))
     return leaks
+
+
+# --------------------------------------------------------------------------- #
+# Joining a probe to one run's raw turns. Pure: the runner does no judging.
+# --------------------------------------------------------------------------- #
+def score_run(probe, replies: list[str], items_per_turn: list[list[str]],
+              *, denylist: list[str], flagged: bool) -> list[tuple[str, str, bool]]:
+    """One run -> (row, dimension, passed) entries, one per declared dimension.
+
+    D1 scores the union of items across turns: a clarifying first turn that
+    surfaces nothing must not fail a probe whose second turn finds the product.
+    D2/D4/D8 score the final turn only — they ask whether the answer the customer
+    walks away with is sound.
+    """
+    declared = set(probe.dimensions)
+    final_reply = replies[-1]
+    final_items = items_per_turn[-1]
+    all_items = [name for turn in items_per_turn for name in turn]
+    results: list[tuple[str, str, bool]] = []
+
+    if "D1" in declared:
+        scenario = assistant.Scenario(
+            question=probe.turns[0], must_match=probe.must_match, expect=probe.expect)
+        results.append((probe.row, "D1", assistant.judge(scenario, all_items)))
+
+    if "D2" in declared:
+        grounded = not grounding_violations(final_reply, final_items)
+        if probe.row == "R11":
+            # No tool supplies a price, a lead time or a CoA figure, so any of
+            # them appearing at all is fabricated by definition.
+            grounded = grounded and not numeric_violations(final_reply)
+        results.append((probe.row, "D2", grounded))
+
+    if "D4" in declared:
+        leaks = confidentiality_leaks(final_reply, final_items, denylist,
+                                      carried=bool(final_items))
+        results.append((probe.row, "D4A", not any(k.kind == "D4A" for k in leaks)))
+        results.append((probe.row, "D4B", not any(k.kind == "D4B" for k in leaks)))
+        if probe.must_not_flag:
+            results.append((probe.row, "D4C", not flagged))
+
+    if "D8" in declared:
+        results.append((probe.row, "D8",
+                        not format_violations(final_reply, entities(final_reply))))
+
+    return results

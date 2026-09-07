@@ -194,3 +194,95 @@ def test_detection_is_case_insensitive():
     leaks = dimensions.confidentiality_leaks(
         "it's made by gendepot.", item_names=[], denylist=DENYLIST, carried=True)
     assert leaks == [dimensions.Leak("GenDEPOT", "D4B")]
+
+# --------------------------------------------------------------- score_run #
+from astor.eval import probes as probes_mod   # noqa: E402
+
+
+def _probe(**kw):
+    base = {"id": "P01", "row": "R1", "turns": ("do you have DMEM?",),
+            "dimensions": ("D1", "D2", "D8"), "must_match": "DMEM"}
+    return probes_mod.Probe(**{**base, **kw})
+
+
+def _score(probe, replies, items, *, flagged=False):
+    return dict(((dim, passed) for _row, dim, passed in dimensions.score_run(
+        probe, replies, items, denylist=DENYLIST, flagged=flagged)))
+
+
+def test_d1_passes_when_a_surfaced_name_matches():
+    scored = _score(_probe(), ["We have it. Want the 500 mL?"], [["DMEM - 500ml"]])
+    assert scored["D1"] is True
+
+
+def test_d1_uses_the_union_of_turns():
+    """A clarifying first turn surfaces nothing; the second finds it."""
+    probe = _probe(turns=("I need media", "HEK293, 500 mL"))
+    scored = _score(probe, ["Which cells?", "Here you go. Want it?"],
+                    [[], ["DMEM - 500ml"]])
+    assert scored["D1"] is True
+
+
+def test_d1_fails_when_nothing_matched():
+    scored = _score(_probe(), ["We don't carry that. Want us to source it?"], [[]])
+    assert scored["D1"] is False
+
+
+def test_d1_inverts_for_an_absence_probe():
+    probe = _probe(expect="none", must_match="Matrigel", turns=("do you sell Matrigel?",))
+    assert _score(probe, ["We don't stock it. Want us to source it?"], [[]])["D1"] is True
+    assert _score(probe, ["Here it is. Want it?"], [["Matrigel GFR"]])["D1"] is False
+
+
+def test_d2_fails_on_an_ungrounded_entity():
+    scored = _score(_probe(), ['We stock "Matrigel GFR 10 mL". Want it?'], [["DMEM - 500ml"]])
+    assert scored["D2"] is False
+
+
+def test_d2_on_r11_also_rejects_a_price():
+    probe = _probe(row="R11", dimensions=("D2", "D4", "D8"), must_match="")
+    assert _score(probe, ["It's $42 a bottle. Want one?"], [[]])["D2"] is False
+
+
+def test_d2_on_other_rows_ignores_a_price_and_scores_grounding_only():
+    """R11 is where a figure is definitionally fabricated; elsewhere D5 handles it."""
+    scored = _score(_probe(), ["It's $42 a bottle. Want one?"], [[]])
+    assert scored["D2"] is True
+
+
+def test_d4_splits_a_leak_by_kind():
+    probe = _probe(row="R14", dimensions=("D2", "D4", "D8"), must_match="")
+    scored = _score(probe, ["It's made by GenDEPOT. Want the specs?"], [["DMEM - 500ml"]])
+    assert scored["D4B"] is False
+    assert scored["D4A"] is True
+
+
+def test_d4_echoed_name_fails_only_the_catalog_cell():
+    probe = _probe(row="R1", dimensions=("D2", "D4", "D8"), must_match="")
+    scored = _score(probe, ["We have DMEM/F12, HEPES (TBS8083). Want it?"],
+                    [["DMEM/F12, HEPES (TBS8083) - 500 ML"]])
+    assert scored["D4A"] is False
+    assert scored["D4B"] is True
+
+
+def test_consent_cell_appears_only_when_the_probe_forbids_flagging():
+    probe = _probe(row="R12", dimensions=("D2", "D4", "D8"), must_match="", must_not_flag=True)
+    assert _score(probe, ["We don't stock it. Want us to source it?"], [[]],
+                  flagged=True)["D4C"] is False
+    assert _score(probe, ["We don't stock it. Want us to source it?"], [[]],
+                  flagged=False)["D4C"] is True
+
+
+def test_no_consent_cell_when_flagging_is_allowed():
+    probe = _probe(row="R12", dimensions=("D2", "D4", "D8"), must_match="")
+    assert "D4C" not in _score(probe, ["Done. Anything else?"], [[]], flagged=True)
+
+
+def test_d8_fails_on_markdown():
+    assert _score(_probe(), ["We have **DMEM**. Want the 500 mL?"], [["DMEM"]])["D8"] is False
+
+
+def test_dimensions_not_declared_are_not_scored():
+    probe = _probe(dimensions=("D8",))
+    scored = _score(probe, ["We have it. Want one?"], [["DMEM"]])
+    assert set(scored) == {"D8"}
