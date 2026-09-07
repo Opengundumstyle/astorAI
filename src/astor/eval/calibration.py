@@ -19,6 +19,57 @@ from collections import defaultdict
 CALIBRATED_AT = 0.6
 
 
+# How a human's label names the transcript it belongs to. Stable across a
+# re-judge, because it identifies the turn that was played, not the verdict.
+def label_key(transcript: dict) -> str:
+    return f"{transcript['probe']}:{transcript['run']}"
+
+
+_PASS = frozenset({"pass", "true", "yes", "y", "1", "ok"})
+_FAIL = frozenset({"fail", "false", "no", "n", "0"})
+
+
+def parse_label(value) -> bool:
+    """A human writes "pass" or "fail". Anything else raises rather than being
+    read as a failure: a typo silently scored as a fail would move kappa, which
+    is the one number that says whether the judge can be trusted at all."""
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in _PASS:
+        return True
+    if text in _FAIL:
+        return False
+    raise ValueError(f"unreadable label {value!r}: write 'pass' or 'fail'")
+
+
+def kappa_from_labels(transcripts: list[dict], labels: dict[str, str]
+                      ) -> tuple[float, int]:
+    """Judge-versus-human agreement over the transcripts both raters scored.
+
+    Returns (kappa, n_compared). Pairs are joined on '<probe>:<run>' and a
+    transcript with no human label, or no judge verdict, is skipped — kappa
+    compares two raters on the SAME items. Nothing joining is an error, not a
+    kappa: a bare number derived from no comparison at all would assert
+    calibration by fiat, which is exactly what this mechanism exists to prevent.
+    """
+    human: list[bool] = []
+    machine: list[bool] = []
+    for transcript in transcripts:
+        verdict = transcript.get("judge")
+        label = labels.get(label_key(transcript))
+        if not verdict or label is None:
+            continue
+        human.append(parse_label(label))
+        machine.append(bool(verdict["passed"]))
+    if not human:
+        raise ValueError(
+            "no transcript carried both a judge verdict and a human label; "
+            "labels are joined on '<probe>:<run>' — check the KEY lines in the "
+            "--label worksheet and that the transcripts were judged")
+    return cohens_kappa(human, machine), len(human)
+
+
 def cohens_kappa(a: list[bool], b: list[bool]) -> float:
     if len(a) != len(b):
         raise ValueError("label sets must be the same length")

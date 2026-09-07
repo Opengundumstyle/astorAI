@@ -72,3 +72,70 @@ def test_sample_is_reproducible_for_a_seed():
 
 def test_sample_smaller_than_requested_returns_everything():
     assert len(calibration.sample_for_labelling(_transcripts()[:5], size=20)) == 5
+
+
+# --------------------------------------------- I8: joining judge to a human #
+def _judged(probe="P21", run=1, passed=True):
+    return {"probe": probe, "row": "R7", "run": run,
+            "judge": {"passed": passed, "reason": "because"}}
+
+
+def test_label_key_is_the_probe_and_the_run():
+    assert calibration.label_key(_judged("P25", 3)) == "P25:3"
+
+
+def test_kappa_is_measured_over_the_transcripts_both_raters_scored():
+    """The one mechanism that turns D5 from decoration into measurement. Before
+    this, cohens_kappa had no caller and --kappa took a float an operator typed."""
+    transcripts = [_judged("P21", 1, True), _judged("P21", 2, False),
+                   _judged("P25", 1, True), _judged("P25", 2, False)]
+    labels = {"P21:1": "pass", "P21:2": "fail", "P25:1": "pass", "P25:2": "fail"}
+    kappa, n = calibration.kappa_from_labels(transcripts, labels)
+    assert kappa == 1.0
+    assert n == 4
+
+
+def test_a_transcript_with_no_human_label_is_skipped():
+    """kappa compares two raters on the SAME items."""
+    transcripts = [_judged("P21", 1, True), _judged("P21", 2, True)]
+    kappa, n = calibration.kappa_from_labels(transcripts, {"P21:1": "pass"})
+    assert n == 1
+    assert kappa == 1.0
+
+
+def test_a_transcript_the_judge_never_graded_is_skipped():
+    ungraded = {"probe": "P21", "row": "R7", "run": 9}
+    _kappa, n = calibration.kappa_from_labels(
+        [_judged("P21", 1, True), ungraded], {"P21:1": "pass", "P21:9": "fail"})
+    assert n == 1
+
+
+def test_a_disagreeing_judge_scores_at_or_below_zero():
+    transcripts = [_judged("P21", n, n % 2 == 0) for n in range(1, 5)]
+    labels = {f"P21:{n}": "pass" if n % 2 else "fail" for n in range(1, 5)}
+    kappa, _n = calibration.kappa_from_labels(transcripts, labels)
+    assert kappa < 0
+
+
+def test_nothing_joining_is_an_error_not_a_kappa():
+    """A bare number derived from no comparison would assert calibration by
+    fiat, which is what this whole mechanism exists to prevent."""
+    with pytest.raises(ValueError, match="probe.*run|no transcript"):
+        calibration.kappa_from_labels([_judged("P21", 1)], {"P99:1": "pass"})
+
+
+def test_a_boolean_label_is_read_directly():
+    assert calibration.parse_label(True) is True
+    assert calibration.parse_label(False) is False
+
+
+def test_pass_and_fail_are_read_case_insensitively():
+    assert calibration.parse_label("PASS") is True
+    assert calibration.parse_label(" fail ") is False
+
+
+def test_an_unreadable_label_raises_rather_than_scoring_a_fail():
+    """A typo silently read as 'fail' would move the one number that says
+    whether the judge can be trusted at all."""
+    with pytest.raises(ValueError, match="unreadable"):
+        calibration.parse_label("passs")
