@@ -26,6 +26,16 @@ def test_unanimous_identical_labels_score_one():
     assert calibration.cohens_kappa([True, True], [True, True]) == 1.0
 
 
+def test_expected_agreement_counts_both_raters_agreeing_on_false():
+    """Two raters who each pass half the answers, but disagree on which half,
+    have learned nothing about each other — kappa 0. This is the only fixture
+    where the (1 - p_a)(1 - p_b) half of expected agreement is non-zero, so a
+    formula that drops it returns 0.33 here instead of 0."""
+    human = [True, True, False, False]
+    model = [True, False, True, False]
+    assert calibration.cohens_kappa(human, model) == pytest.approx(0.0)
+
+
 def test_mismatched_lengths_are_rejected():
     with pytest.raises(ValueError, match="same length"):
         calibration.cohens_kappa([True], [True, False])
