@@ -234,6 +234,16 @@ def test_d1_inverts_for_an_absence_probe():
     assert _score(probe, ["Here it is. Want it?"], [["Matrigel GFR"]])["D1"] is False
 
 
+def test_d1_passes_when_only_an_earlier_turn_surfaced_the_match():
+    """The union is load-bearing: a probe whose first turn finds the product and
+    whose second turn is a follow-up must still pass D1. This fixture fails if
+    D1 ever reads items_per_turn[-1] instead of the union."""
+    probe = _probe(turns=("do you have DMEM?", "what volumes?"))
+    scored = _score(probe, ["Here it is. Want the 500 mL?", "We have several. Which suits?"],
+                    [["DMEM - 500ml"], []])
+    assert scored["D1"] is True
+
+
 def test_d2_fails_on_an_ungrounded_entity():
     scored = _score(_probe(), ['We stock "Matrigel GFR 10 mL". Want it?'], [["DMEM - 500ml"]])
     assert scored["D2"] is False
@@ -248,6 +258,22 @@ def test_d2_on_other_rows_ignores_a_price_and_scores_grounding_only():
     """R11 is where a figure is definitionally fabricated; elsewhere D5 handles it."""
     scored = _score(_probe(), ["It's $42 a bottle. Want one?"], [[]])
     assert scored["D2"] is True
+
+
+def test_d2_ignores_an_ungrounded_entity_from_an_earlier_turn():
+    """D2 grounds the final reply against the final turn's items only. A name
+    the model quotes again in the final reply must be grounded by what THIS
+    turn returned — an earlier turn having once offered it does not count.
+    This fixture fails if D2 ever unions items across turns instead of scoring
+    the final turn alone: grounding is monotonic in the item list (a superset
+    can only reduce violations, never introduce one), so this is the only
+    fixture shape that can catch a final_items -> all_items regression."""
+    probe = _probe(turns=("do you have Matrigel?", "do you have DMEM?"))
+    scored = _score(probe, ['We have it — "Matrigel GFR 10 mL". Want it?',
+                            'Also, "Matrigel GFR 10 mL" if you want it — '
+                            'or did you want the DMEM?'],
+                    [["Matrigel GFR 10 mL"], ["DMEM - 500ml"]])
+    assert scored["D2"] is False
 
 
 def test_d4_splits_a_leak_by_kind():
