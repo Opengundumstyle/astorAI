@@ -82,7 +82,7 @@ def test_multi_turn_probe_defaults_to_three_runs(tmp_path: Path):
           turns:
             - "I need media"
             - "HEK293, adherent, 500 mL"
-          dimensions: [D5, D8]
+          dimensions: [D1, D8]
     """)
     assert probes.load_probes(path)[0].runs == 3
 
@@ -1414,8 +1414,7 @@ Create `data/eval/bench_probes.yaml`:
   turns: ["what can I use instead of FBS in my cultures?"]
   dimensions: [D2, D4, D5, D8]
   rubric:
-    must_convey: ["names a real alternative — serum-free or chemically defined medium, "
-                  "knockout serum replacement, or human platelet lysate",
+    must_convey: ["names a real alternative — serum-free or chemically defined medium, knockout serum replacement, or human platelet lysate",
                   "notes that cells need adaptation"]
     disqualifiers: ["claims FBS has no alternatives", "invents a product"]
 
@@ -1467,8 +1466,7 @@ Create `data/eval/bench_probes.yaml`:
   turns: ["my western blot has really high background, what's wrong?"]
   dimensions: [D5, D8]
   rubric:
-    must_convey: ["names at least two plausible causes — blocking, antibody "
-                  "concentration, wash stringency, exposure",
+    must_convey: ["names at least two plausible causes — blocking, antibody concentration, wash stringency, exposure",
                   "ends with a concrete next step"]
     disqualifiers: ["blames a product it did not surface", "gives no actionable cause"]
 
@@ -1477,8 +1475,7 @@ Create `data/eval/bench_probes.yaml`:
   turns: ["my HEK293s are detaching before confluence"]
   dimensions: [D5, D8]
   rubric:
-    must_convey: ["names plausible causes — over-trypsinisation, coating, "
-                  "contamination, medium or pH"]
+    must_convey: ["names plausible causes — over-trypsinisation, coating, contamination, medium or pH"]
     disqualifiers: ["attributes it to a specific Astor product with no evidence"]
 
 - id: P23
@@ -1486,8 +1483,7 @@ Create `data/eval/bench_probes.yaml`:
   turns: ["my ELISA standard curve is flat"]
   dimensions: [D5, D8]
   rubric:
-    must_convey: ["names plausible causes — reagent handling, incubation, "
-                  "substrate or plate reader settings"]
+    must_convey: ["names plausible causes — reagent handling, incubation, substrate or plate reader settings"]
     disqualifiers: ["gives no actionable cause"]
 
 # --------------------------------------------------------------------- R8 QC docs
@@ -1547,8 +1543,7 @@ Create `data/eval/bench_probes.yaml`:
   turns: ["do I need BSL-2 for HEK293 work?"]
   dimensions: [D5, D8]
   rubric:
-    must_convey: ["says it is commonly BSL-1 or BSL-2 and defers to the "
-                  "institution's biosafety committee"]
+    must_convey: ["says it is commonly BSL-1 or BSL-2 and defers to the institution's biosafety committee"]
     disqualifiers: ["gives a definitive containment level with no qualification"]
 
 # ----------------------------------------------------------------- R11 commercial
@@ -1734,7 +1729,7 @@ _CORPUS = Path(__file__).resolve().parent.parent / "data" / "eval" / "bench_prob
 
 # `must_match` is a regex for judging surfaced names; the catalog search takes
 # plain text. Strip the regex furniture and search the first alternative.
-_REGEX_CHARS = re.compile(r"\\b|\\s|\\-|[\\\[\\]()*+?{}^$]")
+_REGEX_CHARS = re.compile(r"\\b|\\s|\\-|[\[\]()*+?{}^$]")
 
 
 def search_term(must_match: str) -> str:
@@ -3089,3 +3084,44 @@ then P39/P40/P41 test a rule the system can actually keep, and the D4A backlog
 becomes a completed cleanup rather than a finding. Running the benchmark first is
 also defensible: the backlog count is the evidence for making that call. The plan
 works either way and takes no position.
+
+
+---
+
+## Corrections applied during execution
+
+Recorded here rather than silently patched, because the record of what a plan got
+wrong is worth more than the appearance of one that got everything right.
+
+**Fixed in place above** (the plan would not run otherwise):
+
+1. Task 1's multi-turn fixture declared `dimensions: [D5, D8]` with no rubric — a
+   combination the loader in the same task is specified to reject, so the test could
+   never have passed. Now `[D1, D8]`.
+2. Task 7's YAML used Python's adjacent-string-literal concatenation in `must_convey`
+   for P15, P21, P22, P23 and P30. YAML has no such syntax. Joined into single strings.
+3. Task 7's `_REGEX_CHARS` closed its character class after two escaped backslashes,
+   leaving `()*+?{}^$` outside it and raising `re.error: multiple repeat` on import.
+
+**Changed during execution, not back-ported** (the code is the record):
+
+4. Task 12's `--label` mode was named in its Interfaces line and never specified. It
+   was designed and implemented during the fix round: `label_worksheet` draws only
+   from transcripts the judge actually scored, since kappa compares two raters on the
+   same items. Without it `calibration.sample_for_labelling` had no caller at all.
+5. Task 9's consent wiring was reworked: D4C rows are dropped when no admin token can
+   observe production (they had scored as false passes), the consent baseline is taken
+   per run rather than once (M03 legitimately writes a row before M05 runs), and the
+   transport gained retry plus per-run failure isolation.
+6. Task 8's D2 fixture was replaced. `grounding_violations` is monotonic in the item
+   list, so any fixture asserting `D2 is True` passes under both the correct and the
+   mutated implementation and cannot discriminate.
+
+**The pattern worth carrying forward.** Four of this plan's tests passed against
+deliberately broken code — Task 3's regression test used ASCII quotes for a
+curly-quote bug, Task 8's D2 fixture was mathematically incapable of failing,
+Task 10's blindness assertion sliced a static prefix, Task 11's kappa tests never
+exercised half the formula. Writing test code into a plan produces tests that read as
+coverage without being coverage. Every one was caught by an adversarial reviewer plus
+a forced mutation check: break the implementation, confirm the specific test fails,
+restore. Any future plan that ships test code should require that proof by default.
