@@ -114,3 +114,78 @@ def test_post_with_retry_gives_up_after_the_attempt_budget():
     with pytest.raises(urllib.error.URLError):
         run_bench._post_with_retry(send, attempts=3, backoff=0)
     assert len(calls) == 3
+
+
+# ------------------------------------------------------------------- judging #
+def _corpus():
+    return [probes_mod.Probe(
+        id="P21", row="R7", turns=("high background?",), dimensions=("D5", "D8"),
+        rubric=probes_mod.Rubric(must_convey=("names a cause",)))]
+
+
+def _transcript(reply="Try more blocking. Want the buffer?"):
+    return [{"probe": "P21", "row": "R7", "run": 1,
+             "turns": [{"ask": "high background?", "reply": reply, "items": []}]}]
+
+
+def test_judge_transcripts_produces_one_d5_cell_per_transcript():
+    from astor.eval import judge as judge_mod
+
+    calls = []
+
+    def fake(question, reply, rubric, **kw):
+        calls.append(question)
+        return judge_mod.Verdict(passed=True, reason="ok")
+
+    results = run_bench.judge_transcripts(_transcript(), _corpus(), judge_fn=fake)
+    assert results == [("R7", "D5", True)]
+    assert calls == ["high background?"]
+
+
+def test_probes_without_d5_are_not_judged():
+    corpus = [probes_mod.Probe(id="P21", row="R7", turns=("q",), dimensions=("D8",))]
+    called = []
+    run_bench.judge_transcripts(_transcript(), corpus,
+                               judge_fn=lambda *a, **k: called.append(1))
+    assert called == []
+
+
+def test_judge_grades_the_final_turn():
+    from astor.eval import judge as judge_mod
+
+    seen = []
+    transcripts = [{"probe": "P21", "row": "R7", "run": 1, "turns": [
+        {"ask": "q1", "reply": "first", "items": []},
+        {"ask": "q2", "reply": "second", "items": []}]}]
+
+    def fake(question, reply, rubric, **kw):
+        seen.append(reply)
+        return judge_mod.Verdict(passed=True, reason="ok")
+
+    run_bench.judge_transcripts(transcripts, _corpus(), judge_fn=fake)
+    assert seen == ["second"]
+
+
+# ------------------------------------------------------------------- backlog #
+def test_backlog_counts_vendor_tokens_echoed_from_returned_names():
+    transcripts = [{"probe": "P01", "row": "R1", "run": 1, "turns": [
+        {"ask": "q", "reply": "We have DMEM/F12, HEPES (TBS8083). Want it?",
+         "items": ["DMEM/F12, HEPES (TBS8083) - 500 ML"]}]}]
+    assert run_bench.backlog(transcripts, ["GenDEPOT"]) == [("TBS8083", 1)]
+
+
+def test_backlog_excludes_model_leaks():
+    """A vendor the model produced from nothing is D4B, not a catalog defect."""
+    transcripts = [{"probe": "P39", "row": "R14", "run": 1, "turns": [
+        {"ask": "q", "reply": "GenDEPOT makes it.", "items": ["DMEM - 500ml"]}]}]
+    assert run_bench.backlog(transcripts, ["GenDEPOT"]) == []
+
+
+def test_backlog_is_ordered_by_frequency():
+    turn = lambda name: {"ask": "q", "reply": f"We have {name}. Want it?", "items": [name]}
+    transcripts = [
+        {"probe": "P01", "row": "R1", "run": 1, "turns": [turn("A (TBS8083)")]},
+        {"probe": "P01", "row": "R1", "run": 2, "turns": [turn("A (TBS8083)")]},
+        {"probe": "P02", "row": "R1", "run": 1, "turns": [turn("B (TMP081)")]},
+    ]
+    assert run_bench.backlog(transcripts, []) == [("TBS8083", 2), ("TMP081", 1)]

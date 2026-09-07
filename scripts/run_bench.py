@@ -159,6 +159,48 @@ def drop_unverifiable_consent(results: list[tuple[str, str, bool]],
     return [r for r in results if r[1] != "D4C"]
 
 
+def judge_transcripts(transcripts: list[dict], corpus: list, *, judge_fn=None
+                      ) -> list[tuple[str, str, bool]]:
+    """Second pass: grade D5 on collected transcripts.
+
+    Separate from the run so a judge failure cannot abort thirty minutes of
+    collection, and so tightened rubrics can be re-judged without paying for the
+    turns again.
+    """
+    from astor.eval import judge as judge_module
+
+    judge_fn = judge_fn or judge_module.judge_science
+    by_id = {p.id: p for p in corpus}
+    results: list[tuple[str, str, bool]] = []
+    for transcript in transcripts:
+        probe = by_id.get(transcript["probe"])
+        if probe is None or "D5" not in probe.dimensions or probe.rubric is None:
+            continue
+        final = transcript["turns"][-1]
+        verdict = judge_fn(final["ask"], final["reply"], probe.rubric)
+        results.append((probe.row, "D5", bool(verdict.passed)))
+    return results
+
+
+def backlog(transcripts: list[dict], denylist: list[str]) -> list[tuple[str, int]]:
+    """D4A worklist: vendor tokens the assistant echoed out of names it was given.
+
+    Counted across every turn, not just final ones — a leak on turn 1 is just as
+    visible to the customer.
+    """
+    from collections import Counter
+
+    counts: Counter[str] = Counter()
+    for transcript in transcripts:
+        for turn in transcript["turns"]:
+            for leak in dimensions.confidentiality_leaks(
+                    turn["reply"], turn["items"], denylist,
+                    carried=bool(turn["items"])):
+                if leak.kind == "D4A":
+                    counts[leak.token] += 1
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probes", type=Path, default=_CORPUS)
@@ -172,6 +214,10 @@ def main() -> None:
     ap.add_argument("--brands-from-db", action="store_true",
                     help="read the denylist from the local catalog instead of the literal")
     ap.add_argument("--out", type=Path, default=None, help="write the report here")
+    ap.add_argument("--judge", action="store_true",
+                    help="run the D5 science judge over the collected transcripts")
+    ap.add_argument("--kappa", type=float, default=None,
+                    help="measured judge-vs-human agreement; marks D5 calibrated")
     args = ap.parse_args()
 
     secret = settings.shopify_app_proxy_secret or settings.shopify_client_secret
@@ -227,10 +273,22 @@ def main() -> None:
             time.sleep(args.sleep)
         print(f"  {probe.id:<6} {probe.turns[0][:56]}")
 
+    if args.judge:
+        if not settings.anthropic_api_key:
+            raise SystemExit("--judge needs ANTHROPIC_API_KEY in .env")
+        print("\njudging science answers...")
+        results += judge_transcripts(transcripts, corpus)
+
+    from astor.eval import calibration
+    calibrated = args.kappa is not None and args.kappa >= calibration.CALIBRATED_AT
+
     results = drop_unverifiable_consent(results, admin_token=admin_token)
     cells = report.aggregate(results)
-    scorecard = report.render_scorecard(cells, calibrated=False)
+    scorecard = report.render_scorecard(cells, calibrated=calibrated)
     print("\n" + scorecard)
+
+    backlog_report = report.render_backlog(backlog(transcripts, denylist))
+    print("\n" + backlog_report)
 
     if failures:
         print(f"\n{len(failures)} turn(s) failed and were not scored:")
@@ -252,8 +310,8 @@ def main() -> None:
             "\n\n## Failures\n\n" + "\n".join(f"- {failure}" for failure in failures)
             if failures else "")
         args.out.write_text(
-            scorecard + failures_section + "\n\n## Transcripts\n\n"
-            + json.dumps(transcripts, indent=2))
+            scorecard + "\n\n" + backlog_report + failures_section
+            + "\n\n## Transcripts\n\n" + json.dumps(transcripts, indent=2))
         print(f"\nreport written to {args.out}")
 
     sys.exit(0 if not report.failing(cells) else 1)
