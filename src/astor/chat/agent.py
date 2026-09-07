@@ -89,6 +89,14 @@ UNAVAILABLE_MESSAGE = (
 )
 
 
+# tools -> system -> messages is the render order, so a breakpoint on the last
+# system block caches the tool schemas too. Both are byte-identical on every call,
+# including the extra call each tool round costs: measured 2026-09-06, ~1,900 of
+# ~2,500 input tokens per call were this prefix, re-billed in full every time.
+# Sonnet 5's minimum cacheable prefix is 1,024 tokens, so this clears the bar.
+CACHED_SYSTEM = [{"type": "text", "text": SYSTEM, "cache_control": {"type": "ephemeral"}}]
+
+
 def _provider_failure(exc: Exception) -> AssistantUnavailable:
     log.error("assistant provider call failed: %s: %s", type(exc).__name__, exc,
               exc_info=True)
@@ -153,7 +161,7 @@ def run_chat(session, messages, *, client=None, model=None, max_iters: int = 6,
     for _ in range(max_iters):
         try:
             resp = client.messages.create(
-                model=model, max_tokens=1024, system=SYSTEM,
+                model=model, max_tokens=1024, system=CACHED_SYSTEM,
                 tools=tools.TOOL_SCHEMAS, messages=convo,
                 thinking={"type": "disabled"},
             )
@@ -217,7 +225,7 @@ def run_chat_stream(session, messages, *, client=None, model=None, max_iters: in
     try:
         for _ in range(max_iters):
             with client.messages.stream(
-                model=model, max_tokens=1024, system=SYSTEM,
+                model=model, max_tokens=1024, system=CACHED_SYSTEM,
                 tools=tools.TOOL_SCHEMAS, thinking={"type": "disabled"}, messages=convo,
             ) as stream:
                 for event in stream:

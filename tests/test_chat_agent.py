@@ -225,3 +225,34 @@ def test_stream_reports_provider_failure_without_leaking_the_message(monkeypatch
                                         client=client))
     assert events[-1]["type"] == "error"
     assert "credit" not in events[-1]["detail"].lower()
+
+
+def test_system_prompt_is_marked_for_caching(monkeypatch):
+    """tools + system are byte-identical on every call — including the extra call
+    each tool round costs — so they are the stable prefix worth caching.
+    Measured 2026-09-06: ~1,900 of ~2,500 input tokens per call, re-billed each time."""
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    client = _FakeClient([_resp("end_turn", [_text_block("hi")])])
+    agent.run_chat(object(), [{"role": "user", "content": "hello"}], client=client)
+
+    system = client.messages.calls[0]["system"]
+    assert isinstance(system, list), "system must be block form to carry cache_control"
+    assert system[-1]["cache_control"] == {"type": "ephemeral"}
+    assert system[-1]["text"] == agent.SYSTEM
+
+
+def test_cached_system_survives_a_tool_round(monkeypatch):
+    """The breakpoint must be on every call, not just the first — the second call
+    is where the cache actually pays off."""
+    monkeypatch.setattr(agent.settings, "anthropic_api_key", "k")
+    monkeypatch.setattr(tools, "dispatch",
+        lambda s, n, a, request_context=None: ({"products": []}, []))
+    client = _FakeClient([
+        _resp("tool_use", [_tool_block("t1", "search_products", {"query": "x"})]),
+        _resp("end_turn", [_text_block("done")]),
+    ])
+    agent.run_chat(object(), [{"role": "user", "content": "hi"}], client=client)
+
+    assert len(client.messages.calls) == 2
+    for call in client.messages.calls:
+        assert call["system"][-1]["cache_control"] == {"type": "ephemeral"}
