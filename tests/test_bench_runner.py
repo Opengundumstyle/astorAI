@@ -1,6 +1,8 @@
 """Conversation mechanics for the benchmark runner. No network."""
 from __future__ import annotations
 
+import urllib.error
+
 import pytest
 
 from astor.eval import probes as probes_mod
@@ -66,3 +68,49 @@ def test_play_resolves_a_placeholder_from_the_previous_turn():
 
     run_bench.play(probe, post)
     assert sent[1][-1]["content"] == 'Tell me about "Western Blot" (protocol id: p-9)'
+
+
+def test_consent_rows_are_dropped_when_the_admin_token_is_missing():
+    """A D4C cell that reads 'ok' because nothing was checked is a false pass."""
+    results = [("R12", "D1", True), ("R12", "D4C", True)]
+    assert run_bench.drop_unverifiable_consent(results, admin_token=None) == [
+        ("R12", "D1", True)]
+
+
+def test_consent_rows_are_kept_when_the_admin_token_is_present():
+    results = [("R12", "D4C", True)]
+    assert run_bench.drop_unverifiable_consent(results, admin_token="t") == results
+
+
+def test_post_with_retry_retries_a_rate_limit_then_succeeds():
+    calls = []
+
+    def send():
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.HTTPError("u", 429, "Too Many Requests", None, None)
+        return {"ok": True}
+
+    assert run_bench._post_with_retry(send, attempts=3, backoff=0) == {"ok": True}
+    assert len(calls) == 2
+
+
+def test_post_with_retry_does_not_retry_an_auth_error():
+    """401 is a real error — retrying it just wastes three requests."""
+    def send():
+        raise urllib.error.HTTPError("u", 401, "Unauthorized", None, None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        run_bench._post_with_retry(send, attempts=3, backoff=0)
+
+
+def test_post_with_retry_gives_up_after_the_attempt_budget():
+    calls = []
+
+    def send():
+        calls.append(1)
+        raise urllib.error.URLError("boom")
+
+    with pytest.raises(urllib.error.URLError):
+        run_bench._post_with_retry(send, attempts=3, backoff=0)
+    assert len(calls) == 3

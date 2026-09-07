@@ -31,6 +31,7 @@ import json
 import re
 import sys
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
@@ -87,16 +88,39 @@ def play(probe, post) -> list[TurnResult]:
 # --------------------------------------------------------------------------- #
 # Transport
 # --------------------------------------------------------------------------- #
+# A 429 or a provider blip during a 256-turn run must cost one turn, not the
+# whole run. 4xx other than 429 is a real error and is not retried.
+_RETRYABLE = frozenset({429, 500, 502, 503, 504})
+
+
+def _post_with_retry(send, *, attempts: int = 3, backoff: float = 5.0):
+    last: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return send()
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRYABLE:
+                raise
+            last = exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last = exc
+        if attempt < attempts - 1:
+            time.sleep(backoff * (2 ** attempt))
+    raise last
+
+
 def _proxy_post(base: str, shop: str, secret: str):
     def post(messages: list[dict]) -> dict:
-        params = {"shop": shop, "path_prefix": "/apps/astor",
-                  "timestamp": str(int(time.time()))}
-        body = json.dumps({"messages": messages}).encode()
-        request = urllib.request.Request(
-            _signed_url(base, "/proxy/chat", params, secret), data=body, method="POST",
-            headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(request, timeout=180) as response:
-            return json.loads(response.read().decode())
+        def send() -> dict:
+            params = {"shop": shop, "path_prefix": "/apps/astor",
+                      "timestamp": str(int(time.time()))}
+            body = json.dumps({"messages": messages}).encode()
+            request = urllib.request.Request(
+                _signed_url(base, "/proxy/chat", params, secret), data=body, method="POST",
+                headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(request, timeout=180) as response:
+                return json.loads(response.read().decode())
+        return _post_with_retry(send)
     return post
 
 
@@ -119,6 +143,20 @@ def _brands_from_db() -> list[str]:
         return [r[0] for r in session.execute(
             text("select distinct brand from products "
                  "where brand is not null and brand <> ''")).all()]
+
+
+def drop_unverifiable_consent(results: list[tuple[str, str, bool]],
+                              *, admin_token: str | None) -> list[tuple[str, str, bool]]:
+    """Remove D4C rows when we cannot observe production's sourcing table.
+
+    score_run emits a D4C row for every must_not_flag probe, and `flagged`
+    defaults to False, so without an admin token those rows would score as
+    passing. A cell absent from the scorecard is honest; a cell that reads
+    "ok" because nothing was checked is not.
+    """
+    if admin_token:
+        return results
+    return [r for r in results if r[1] != "D4C"]
 
 
 def main() -> None:
@@ -165,26 +203,39 @@ def main() -> None:
 
     results: list[tuple[str, str, bool]] = []
     transcripts: list[dict] = []
+    failures: list[str] = []
     for probe in corpus:
         for run in range(args.runs or probe.runs):
-            turns = play(probe, post)
-            flagged = False
-            if probe.must_not_flag and admin_token:
-                flagged = _tagged_sourcing_rows(args.base, admin_token) > before
-            results += dimensions.score_run(
-                probe, [t.reply for t in turns], [t.item_names for t in turns],
-                denylist=denylist, flagged=flagged)
-            transcripts.append({
-                "probe": probe.id, "row": probe.row, "run": run + 1,
-                "turns": [{"ask": q, "reply": t.reply, "items": t.item_names}
-                          for q, t in zip(probe.turns, turns)],
-            })
+            try:
+                consent_probe = probe.must_not_flag and admin_token
+                before_run = (_tagged_sourcing_rows(args.base, admin_token)
+                              if consent_probe else 0)
+                turns = play(probe, post)
+                flagged = (_tagged_sourcing_rows(args.base, admin_token) > before_run
+                           if consent_probe else False)
+                results += dimensions.score_run(
+                    probe, [t.reply for t in turns], [t.item_names for t in turns],
+                    denylist=denylist, flagged=flagged)
+                transcripts.append({
+                    "probe": probe.id, "row": probe.row, "run": run + 1,
+                    "turns": [{"ask": q, "reply": t.reply, "items": t.item_names}
+                              for q, t in zip(probe.turns, turns)],
+                })
+            except Exception as exc:
+                failures.append(f"{probe.id} run {run + 1}: {type(exc).__name__}: {exc}")
+                print(f"  ! {probe.id} run {run + 1} failed: {type(exc).__name__}: {exc}")
             time.sleep(args.sleep)
         print(f"  {probe.id:<6} {probe.turns[0][:56]}")
 
+    results = drop_unverifiable_consent(results, admin_token=admin_token)
     cells = report.aggregate(results)
     scorecard = report.render_scorecard(cells, calibrated=False)
     print("\n" + scorecard)
+
+    if failures:
+        print(f"\n{len(failures)} turn(s) failed and were not scored:")
+        for failure in failures:
+            print(f"  - {failure}")
 
     if needs_consent and admin_token:
         after = _tagged_sourcing_rows(args.base, admin_token)
@@ -197,8 +248,11 @@ def main() -> None:
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
+        failures_section = (
+            "\n\n## Failures\n\n" + "\n".join(f"- {failure}" for failure in failures)
+            if failures else "")
         args.out.write_text(
-            scorecard + "\n\n## Transcripts\n\n"
+            scorecard + failures_section + "\n\n## Transcripts\n\n"
             + json.dumps(transcripts, indent=2))
         print(f"\nreport written to {args.out}")
 
