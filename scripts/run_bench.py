@@ -57,6 +57,7 @@ _PLACEHOLDER = re.compile(r"\{\{items\[(\d+)\]\.(name|id)\}\}")
 class TurnResult:
     reply: str
     item_names: list[str]
+    seconds: float = 0.0
 
 
 def resolve(template: str, items: list[dict]) -> str:
@@ -78,10 +79,12 @@ def play(probe, post) -> list[TurnResult]:
     last_items: list[dict] = []
     for template in probe.turns:
         history.append({"role": "user", "content": resolve(template, last_items)})
+        started = time.monotonic()
         payload = post(history)
+        elapsed = time.monotonic() - started
         last_items = payload.get("items") or []
         history.append({"role": "assistant", "content": payload["reply"]})
-        turns.append(TurnResult(payload["reply"], [i["name"] for i in last_items]))
+        turns.append(TurnResult(payload["reply"], [i["name"] for i in last_items], elapsed))
     return turns
 
 
@@ -295,6 +298,7 @@ def main() -> None:
     results: list[tuple[str, str, bool]] = []
     transcripts: list[dict] = []
     failures: list[str] = []
+    latencies: list[float] = []
     for probe in corpus:
         for run in range(args.runs or probe.runs):
             try:
@@ -302,6 +306,7 @@ def main() -> None:
                 before_run = (_tagged_sourcing_rows(args.base, admin_token)
                               if consent_probe else 0)
                 turns = play(probe, post)
+                latencies += [t.seconds for t in turns]
                 flagged = (_tagged_sourcing_rows(args.base, admin_token) > before_run
                            if consent_probe else False)
                 results += dimensions.score_run(
@@ -309,7 +314,8 @@ def main() -> None:
                     denylist=denylist, flagged=flagged)
                 transcripts.append({
                     "probe": probe.id, "row": probe.row, "run": run + 1,
-                    "turns": [{"ask": q, "reply": t.reply, "items": t.item_names}
+                    "turns": [{"ask": q, "reply": t.reply, "items": t.item_names,
+                               "seconds": round(t.seconds, 2)}
                               for q, t in zip(probe.turns, turns)],
                 })
             except Exception as exc:
@@ -335,6 +341,9 @@ def main() -> None:
     backlog_report = report.render_backlog(backlog(transcripts, denylist))
     print("\n" + backlog_report)
 
+    latency_report = report.render_latency(latencies)
+    print("\n" + latency_report)
+
     if failures:
         print(f"\n{len(failures)} turn(s) failed and were not scored:")
         for failure in failures:
@@ -355,7 +364,7 @@ def main() -> None:
             "\n\n## Failures\n\n" + "\n".join(f"- {failure}" for failure in failures)
             if failures else "")
         args.out.write_text(
-            scorecard + "\n\n" + backlog_report + failures_section
+            scorecard + "\n\n" + backlog_report + "\n\n" + latency_report + failures_section
             + "\n\n## Transcripts\n\n" + json.dumps(transcripts, indent=2))
         print(f"\nreport written to {args.out}")
 

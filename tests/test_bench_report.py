@@ -125,3 +125,32 @@ def test_backlog_lists_tokens_and_counts():
 
 def test_empty_backlog_says_so():
     assert "none" in report.render_backlog([]).lower()
+
+
+# ------------------------------------------------------------------- latency #
+def test_percentile_picks_the_nearest_rank():
+    assert report.percentile([1.0, 2.0, 3.0, 4.0], 0.5) == 2.0
+    assert report.percentile([1.0, 2.0, 3.0, 4.0], 0.95) == 4.0
+
+
+def test_percentile_of_one_value_is_that_value():
+    assert report.percentile([7.5], 0.95) == 7.5
+
+
+def test_percentile_of_nothing_is_zero():
+    assert report.percentile([], 0.5) == 0.0
+
+
+def test_percentile_ignores_input_order():
+    assert report.percentile([4.0, 1.0, 3.0, 2.0], 0.5) == 2.0
+
+
+def test_latency_report_shows_both_percentiles_and_the_turn_count():
+    rendered = report.render_latency([1.0, 2.0, 3.0, 9.0])
+    assert "p50" in rendered
+    assert "p95" in rendered
+    assert "4" in rendered
+
+
+def test_latency_report_with_no_turns_says_so():
+    assert "no turns" in report.render_latency([]).lower()

@@ -118,3 +118,27 @@ def render_backlog(leaks: list[tuple[str, int]]) -> str:
              f"  {'token':<24}{'turns':>6}"]
     lines += [f"  {token:<24}{count:>6}" for token, count in leaks]
     return "\n".join(lines)
+
+
+# --------------------------------------------------------------------------- #
+# D9 — latency. Reported, never gated: a slow answer is a product problem, not a
+# correctness one. p95 is the number that matters; a shopper waiting eleven
+# seconds is not consoled by a good mean.
+# --------------------------------------------------------------------------- #
+def percentile(values: list[float], q: float) -> float:
+    """Nearest-rank percentile. No interpolation — with a few hundred samples the
+    difference is noise, and a real observed turn time is easier to argue with."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, math.ceil(q * len(ordered)))
+    return ordered[rank - 1]
+
+
+def render_latency(seconds: list[float]) -> str:
+    if not seconds:
+        return "latency: no turns recorded."
+    return (f"latency over {len(seconds)} turns: "
+            f"p50 {percentile(seconds, 0.5):.1f}s  "
+            f"p95 {percentile(seconds, 0.95):.1f}s  "
+            f"max {max(seconds):.1f}s")
