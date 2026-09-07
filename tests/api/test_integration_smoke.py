@@ -75,3 +75,47 @@ def test_search_ranks_and_filters_against_real_postgres():
                 session.execute(delete(SupplierOffer).where(SupplierOffer.supplier_id == sup.id))
                 session.execute(delete(Product).where(Product.brand == "SearchTest"))
                 session.execute(delete(Supplier).where(Supplier.id == sup.id))
+
+
+def test_unsellable_products_are_hidden_from_shoppers_but_not_from_ops():
+    """The production bug: an ARCHIVED plate with no storefront page was offered
+    to a customer. Proves the column, the filter, and the ops opt-out together."""
+    from sqlalchemy import delete, select
+
+    from astor.api import repo
+    from astor.catalog.ingestion import ingest_extracted
+    from astor.catalog.schemas import ExtractedProduct
+    from astor.db.base import session_scope
+    from astor.db.models import Product, Supplier, SupplierOffer
+
+    def _sync(sellable: bool):
+        with session_scope() as session:
+            ingest_extracted(
+                session,
+                [ExtractedProduct(supplier_sku="SELL-1", name="SELLTEST Archived Widget",
+                                  category="consumables", brand="SellTest", mpn="ST-1",
+                                  cost=1.0, currency="USD", stock=0, sellable=sellable)],
+                supplier_name="SellTest Supplier", region="US", tier="public")
+
+    try:
+        _sync(sellable=True)
+        with session_scope() as s:
+            shopper, _ = repo.list_products(s, "SELLTEST Archived Widget", None, 1, 20)
+            assert shopper, "a sellable product must be visible to shoppers"
+
+        # Upstream archives it; the next sync must flip the EXISTING row.
+        _sync(sellable=False)
+        with session_scope() as s:
+            shopper, total = repo.list_products(s, "SELLTEST Archived Widget", None, 1, 20)
+            assert (shopper, total) == ([], 0), "archived stock reached a shopper"
+
+            ops, ops_total = repo.list_products(s, "SELLTEST Archived Widget", None, 1, 20,
+                                                sellable_only=False)
+            assert ops_total == 1, "ops must still see archived stock"
+    finally:
+        with session_scope() as session:
+            sup = session.scalar(select(Supplier).where(Supplier.name == "SellTest Supplier"))
+            if sup is not None:
+                session.execute(delete(SupplierOffer).where(SupplierOffer.supplier_id == sup.id))
+                session.execute(delete(Product).where(Product.brand == "SellTest"))
+                session.execute(delete(Supplier).where(Supplier.id == sup.id))

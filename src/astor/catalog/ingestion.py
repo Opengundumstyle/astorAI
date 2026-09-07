@@ -61,16 +61,22 @@ def upsert_step(
         if p.brand and p.mpn:
             stmt = (
                 insert(Product)
-                .values(category=p.category, name=p.name, brand=p.brand, mpn=p.mpn, specs=p.specs)
+                .values(category=p.category, name=p.name, brand=p.brand, mpn=p.mpn,
+                        specs=p.specs, sellable=p.sellable)
                 .on_conflict_do_update(
                     constraint="uq_product_brand_mpn",
-                    set_={"name": p.name, "category": p.category, "specs": p.specs},
+                    # sellable is in the update set on purpose: a product archived
+                    # upstream must stop being sellable here on the next sync, not
+                    # keep the value it had when first ingested.
+                    set_={"name": p.name, "category": p.category, "specs": p.specs,
+                          "sellable": p.sellable},
                 )
                 .returning(Product.id)
             )
             product_id = session.execute(stmt).scalar_one()
         else:
-            prod = Product(category=p.category, name=p.name, brand=p.brand, mpn=p.mpn, specs=p.specs)
+            prod = Product(category=p.category, name=p.name, brand=p.brand, mpn=p.mpn,
+                           specs=p.specs, sellable=p.sellable)
             session.add(prod)
             session.flush()
             product_id = prod.id

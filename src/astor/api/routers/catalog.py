@@ -22,7 +22,10 @@ def products(
     role: str = "ops",
     session: Session = Depends(get_session),
 ) -> dict:
-    items, total = repo.list_products(session, q, category, page, page_size)
+    # Operators see the whole catalog, archived stock included; only the
+    # storefront path takes the fail-closed default.
+    items, total = repo.list_products(session, q, category, page, page_size,
+                                      sellable_only=False)
     return {
         "items": [roles.gate_product(i, role) for i in items],
         "total": total,

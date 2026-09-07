@@ -115,9 +115,16 @@ def _doc_frequencies(session, entity, columns, toks: list[str]) -> dict[str, int
     return df
 
 
-def list_products(session, q, category, page, page_size) -> tuple[list[dict], int]:
+def list_products(session, q, category, page, page_size,
+                  sellable_only: bool = True) -> tuple[list[dict], int]:
+    """`sellable_only` defaults True so the shopper-facing path is fail-closed: a
+    caller that forgets it hides archived/draft/unpublished stock rather than
+    recommending something nobody can buy. Ops passes False explicitly."""
     stmt = select(Product)
     count_stmt = select(func.count(Product.id))
+    if sellable_only:
+        stmt = stmt.where(Product.sellable.is_(True))
+        count_stmt = count_stmt.where(Product.sellable.is_(True))
     if category:
         stmt = stmt.where(Product.category == category)
         count_stmt = count_stmt.where(Product.category == category)
@@ -128,7 +135,10 @@ def list_products(session, q, category, page, page_size) -> tuple[list[dict], in
         candidates = session.scalars(
             stmt.where(_token_superset(cols, toks))
         ).all()
-        n_docs = session.scalar(select(func.count(Product.id))) or len(candidates)
+        n_docs_stmt = select(func.count(Product.id))
+        if sellable_only:
+            n_docs_stmt = n_docs_stmt.where(Product.sellable.is_(True))
+        n_docs = session.scalar(n_docs_stmt) or len(candidates)
         rows, total = search.page(
             candidates, q, page=page, page_size=page_size,
             df=_doc_frequencies(session, Product, cols, toks), n_docs=n_docs,

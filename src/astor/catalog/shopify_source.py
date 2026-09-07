@@ -58,6 +58,8 @@ query Products($cursor: String, $mfNamespace: String) {
         vendor
         productType
         tags
+        status
+        publishedAt
         metafields(first: 25, namespace: $mfNamespace) {
           edges { node { namespace key value } }
         }
@@ -176,6 +178,15 @@ def map_product_node(node: dict, cfg: ShopifyConfig) -> list[ExtractedProduct]:
     if not category:
         tags = node.get("tags") or []
         category = (tags[0].strip() if tags else None) or None
+    # A shopper can only buy an ACTIVE product that is published to the storefront.
+    # The Admin API returns DRAFT and ARCHIVED products too, and an ACTIVE product
+    # can still be unpublished -- both were reaching customers. A node without the
+    # fields (canned fixtures, other sources) is treated as sellable.
+    status = node.get("status")
+    sellable = True
+    if status is not None or "publishedAt" in node:
+        sellable = status == "ACTIVE" and node.get("publishedAt") is not None
+
     mfs = _metafields(node)
     mpn_from_mf = mfs.get(cfg.mpn_metafield) if cfg.mpn_metafield else None
 
@@ -232,6 +243,7 @@ def map_product_node(node: dict, cfg: ShopifyConfig) -> list[ExtractedProduct]:
                 stock=v.get("inventoryQuantity"),
                 lead_time_days=None,
                 specs=specs,
+                sellable=sellable,
             )
         )
     return out

@@ -232,3 +232,17 @@ def test_system_prompt_forbids_naming_manufacturers():
     lowered = SYSTEM.lower()
     assert "confidential" in lowered
     assert "manufacturer" in lowered
+
+
+def test_repo_search_defaults_to_sellable_only():
+    """Fail closed: a caller that forgets the flag must NOT show shoppers archived
+    or unpublished stock. The assistant recommended an ARCHIVED plate with no
+    storefront page and zero inventory in production on 2026-09-05.
+
+    This asserts the real signature, not a fake's default — a mock with its own
+    default would pass this test while production shipped the opposite."""
+    import inspect
+    from astor.api import repo as real_repo
+
+    default = inspect.signature(real_repo.list_products).parameters["sellable_only"].default
+    assert default is True

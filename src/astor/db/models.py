@@ -89,6 +89,11 @@ class Product(Base, TimestampMixin):
     # Manufacturer catalog number (a.k.a. MPN) -- the strongest dedupe signal.
     mpn: Mapped[str | None] = mapped_column(String(128))
     specs: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default=text("'{}'::jsonb"))
+    # Can a shopper buy it? False for Shopify products that are archived, draft or
+    # unpublished. Feeds are the source of truth: a product archived upstream flips
+    # to false on the next sync. Buyer-facing reads filter on this; ops does not.
+    sellable: Mapped[bool] = mapped_column(
+        nullable=False, server_default=text("true"), index=True, default=True)
     # Embedding of the canonical product text; populated by the matcher.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(settings.embedding_dim))
     # Provenance for the embedding above: which model produced it, and a hash of

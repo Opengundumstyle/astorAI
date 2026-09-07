@@ -18,6 +18,10 @@ class ExtractedProduct(BaseModel):
     stock: int | None = None
     lead_time_days: int | None = None
     specs: dict = Field(default_factory=dict)
+    # Can a shopper actually buy this? False for Shopify products that are
+    # archived, draft, or unpublished to the storefront. Sources with no such
+    # concept (CSV, PDF) leave it True and are unaffected.
+    sellable: bool = True
 
 
 class NormalizedProduct(BaseModel):
@@ -26,6 +30,7 @@ class NormalizedProduct(BaseModel):
     brand: str | None = None
     mpn: str | None = None
     specs: dict = Field(default_factory=dict)
+    sellable: bool = True
 
 
 class NormalizedOffer(BaseModel):

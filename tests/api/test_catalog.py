@@ -23,7 +23,7 @@ def _client(monkeypatch):
     app = create_app()
     app.dependency_overrides[get_session] = lambda: None  # repo is monkeypatched, session unused
     monkeypatch.setattr(repo, "list_products",
-                        lambda s, q, category, page, page_size: ([SUMMARY], 1))
+                        lambda s, q, category, page, page_size, sellable_only=True: ([SUMMARY], 1))
     monkeypatch.setattr(repo, "get_product_detail",
                         lambda s, pid: DETAIL if pid == "1" else None)
     return TestClient(app)
@@ -62,3 +62,18 @@ def test_product_detail_buyer_strips_offers_and_equivalent_brand(monkeypatch):
 def test_product_detail_404(monkeypatch):
     resp = _client(monkeypatch).get("/api/products/missing")
     assert resp.status_code == 404
+
+
+def test_ops_product_list_still_sees_unsellable_stock(monkeypatch):
+    """Operators must see archived/draft rows — only the storefront hides them.
+    The router therefore has to opt OUT of the fail-closed default explicitly."""
+    seen = {}
+
+    def fake(s, q, category, page, page_size, sellable_only=True):
+        seen["sellable_only"] = sellable_only
+        return [SUMMARY], 1
+
+    client = _client(monkeypatch)
+    monkeypatch.setattr(repo, "list_products", fake)
+    client.get("/api/products?q=plate")
+    assert seen["sellable_only"] is False

@@ -35,3 +35,22 @@ def test_landed_cost_breakdown():
     assert bd["currency"] == "USD"
     assert bd["tariff"] > 0
     assert bd["line_total"] == round(bd["unit_price"] * 2, 4)
+
+
+# ---------------------------------------------------------- sellable plumbing #
+def test_normalize_carries_sellable_through():
+    """A flag the upsert never sees is a flag that never reaches the database."""
+    from astor.catalog.normalization import normalize
+    from astor.catalog.schemas import ExtractedProduct
+
+    item = ExtractedProduct(supplier_sku="X1", name="Archived plate", category="c",
+                            cost=1.0, sellable=False)
+    assert normalize(item).product.sellable is False
+
+
+def test_normalize_defaults_sellable_true_for_sources_without_status():
+    from astor.catalog.normalization import normalize
+    from astor.catalog.schemas import ExtractedProduct
+
+    item = ExtractedProduct(supplier_sku="X2", name="CSV product", category="c", cost=1.0)
+    assert normalize(item).product.sellable is True

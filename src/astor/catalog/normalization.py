@@ -42,6 +42,7 @@ def normalize(item: ExtractedProduct) -> NormalizedItem:
         brand=(item.brand or None) and item.brand.strip(),
         mpn=(item.mpn or None) and item.mpn.strip(),
         specs=item.specs or {},
+        sellable=item.sellable,
     )
     offer = NormalizedOffer(
         supplier_sku=item.supplier_sku.strip(),

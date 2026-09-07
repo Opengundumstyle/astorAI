@@ -96,3 +96,52 @@ def test_graphql_url_normalizes_bare_handle():
     assert ShopifyConfig("astor", "t", api_version="2026-01").graphql_url == (
         "https://astor.myshopify.com/admin/api/2026-01/graphql.json"
     )
+
+
+# --------------------------------------------------------------- sellability #
+# The Admin API returns every product regardless of status, so archived, draft and
+# unpublished items were entering the catalog and being recommended to shoppers.
+# Measured 2026-09-06: 316 such products, including the 6-well plate the assistant
+# offered a customer (ARCHIVED, publishedAt null, zero inventory).
+
+def _node(status="ACTIVE", published_at="2024-08-30T03:42:25Z"):
+    return {
+        "id": "gid://shopify/Product/9",
+        "title": "Cell Culture Plate, 6 Well CCP01006",
+        "vendor": "Vazyme",
+        "productType": "Consumables",
+        "tags": [],
+        "status": status,
+        "publishedAt": published_at,
+        "metafields": {"edges": []},
+        "variants": {"edges": [{"node": {
+            "id": "gid://shopify/ProductVariant/91",
+            "sku": "CCP01006", "barcode": "", "title": "50/Case",
+            "price": "180.00", "inventoryQuantity": 0,
+            "selectedOptions": [], "inventoryItem": {"unitCost": None},
+        }}]},
+    }
+
+
+def test_active_published_product_is_sellable():
+    assert map_product_node(_node(), CFG)[0].sellable is True
+
+
+def test_archived_product_is_not_sellable():
+    assert map_product_node(_node(status="ARCHIVED", published_at=None), CFG)[0].sellable is False
+
+
+def test_draft_product_is_not_sellable():
+    assert map_product_node(_node(status="DRAFT", published_at=None), CFG)[0].sellable is False
+
+
+def test_active_but_unpublished_product_is_not_sellable():
+    """ACTIVE alone is not enough — an unpublished product has no storefront page."""
+    assert map_product_node(_node(published_at=None), CFG)[0].sellable is False
+
+
+def test_missing_status_defaults_to_sellable():
+    """Other extractors (CSV, PDF) carry no status; they must not be filtered out."""
+    node = _node()
+    del node["status"], node["publishedAt"]
+    assert map_product_node(node, CFG)[0].sellable is True
