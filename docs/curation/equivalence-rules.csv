@@ -1,0 +1,6 @@
+﻿rule_id,情况,说明,例子A,例子B,影响对数,您的判定（相同/可替代/不可替代/看情况）,备注
+B1_packsize,同一产品，只有包装规格不同,两条记录指向同一个产品，唯一区别是买多少。,"Apilimod, IL12/23 inhibitor (TBI4188) - 25 MG","Apilimod, IL12/23 inhibitor (TBI4188) - 5 MG",23,,
+B2_vessel_capacity,同类耗材，容量不同,同一类器皿，规格不同。,"Centrifuge Tubes, 15 ml, PP, Sterile, Plug-Seal Cap","Centrifuge Tubes, 50 ml, PP, Sterile, Plug-Seal Cap",40,,
+B3_grade_sterility,同类产品，灭菌状态或等级不同,同一个东西，但一个灭菌/标了等级，另一个没有。,"Screw cap micro tube, 1.5 ml, sterile, 500 Piece(s)","Screw cap micro tube, 1.5 ml, 500 Piece(s)",29,,
+B4_formulation,同一基础配方，添加成分不同,同一基础培养基或缓冲液，添加物不同。,DMEM/Ham's F-12 (1:1 Mixture); No Phenol Red - 500ml,"DMEM/Ham's F-12 (1:1 Mixture), With HEPES - 50x500ml",28,,
+B5_crossbrand_function,不同品牌，功能相同,两个不同厂牌的产品用途一样。这是 Astor 最关心的一类。,"Serological pipettes (ThermoFisher, #170356)","Biologix Sterile Serological Pipettes-1ML, 2ML, 5ML",22,,
