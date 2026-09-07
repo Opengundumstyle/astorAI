@@ -430,6 +430,11 @@ def collect(corpus: list, post, *, denylist: list[str], sleep: float,
     One failing run costs its own transcript and nothing else: a blip 200 turns
     into a 40-minute collection must not discard the 199 that worked.
     """
+    if admin_token and since is None:
+        # Loud, because the quiet version is a false pass: without a baseline
+        # `flagged` would be False for every run and D4C would read "ok"
+        # while a row sat in production.
+        raise ValueError("a consent baseline needs the run's start time (`since`)")
     out = Collected()
     for probe in corpus:
         for run in range(runs_override or probe.runs):

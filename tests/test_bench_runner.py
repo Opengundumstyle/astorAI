@@ -457,3 +457,13 @@ def test_collect_isolates_a_failing_run_and_keeps_the_others():
     assert "P01 run 2" in collected.failures[0]
     assert [r[1] for r in collected.results] == ["D8", "D8"]
     assert [r[0] for r in collected.probe_results] == ["P01", "P01"]
+
+
+def test_collect_refuses_to_score_consent_without_a_baseline():
+    """A missing baseline would make `flagged` False for every run, so D4C would
+    read 'ok' with a token present — the exact false pass the harness guards."""
+    probe = probes_mod.Probe(id="M05", row="R12", turns=("q",), dimensions=("D4",),
+                             must_not_flag=True)
+    with pytest.raises(ValueError, match="start time"):
+        run_bench.collect([probe], lambda m: {"reply": "ok", "items": []},
+                          denylist=[], sleep=0.0, admin_token="t", since=None)
