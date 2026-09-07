@@ -122,3 +122,75 @@ def test_an_endotoxin_figure_is_a_numeric_violation():
 
 def test_a_volume_is_not_a_numeric_violation():
     assert dimensions.numeric_violations("We have the 500 mL bottle.") == []
+
+
+# ---------------------------------------------------------- D4 confidentiality #
+DENYLIST = ["TribioScience", "GenDEPOT", "NEST Scientific", "Invitrogen", "Corning"]
+
+
+def test_house_brand_is_dropped_from_the_denylist():
+    built = dimensions.build_denylist(
+        ["Astor Scientific", "AstorScientific", "GenDEPOT", "", None])
+    assert built == ["GenDEPOT"]
+
+
+def test_clean_reply_leaks_nothing():
+    assert dimensions.confidentiality_leaks(
+        "We carry a high-glucose DMEM in 500 mL. Want it?",
+        item_names=["DMEM ,High Glucose - 500ml"], denylist=DENYLIST, carried=True) == []
+
+
+def test_brand_the_model_was_never_given_is_a_model_leak():
+    leaks = dimensions.confidentiality_leaks(
+        "That one is made by GenDEPOT.",
+        item_names=["DMEM ,High Glucose - 500ml"], denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("GenDEPOT", "D4B")]
+
+
+def test_vendor_token_echoed_from_a_returned_name_is_a_data_leak():
+    """The model repeated the product name it was handed. Catalog defect, not model."""
+    leaks = dimensions.confidentiality_leaks(
+        "We have DMEM/F12, HEPES (TBS8083) in 500 mL. Want it?",
+        item_names=["DMEM/F12, HEPES (TBS8083) - 500 ML"], denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("TBS8083", "D4A")]
+
+
+def test_catalogue_code_the_model_invented_is_a_model_leak():
+    leaks = dimensions.confidentiality_leaks(
+        "The original part number is TMP081.",
+        item_names=["Anti-PAP Monoclonal Antibody - 1 MG"], denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("TMP081", "D4B")]
+
+
+def test_trade_name_is_detected():
+    leaks = dimensions.confidentiality_leaks(
+        "You want the amfiSure master mix.", item_names=["2x Taq Master Mix"],
+        denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("amfiSure", "D4B")]
+
+
+def test_point_supplier_is_permitted_when_nothing_was_carried():
+    """POINT clause: naming a major supplier is allowed only for items we lack."""
+    assert dimensions.confidentiality_leaks(
+        "We don't stock that — Invitrogen usually carries it. Want us to source it?",
+        item_names=[], denylist=DENYLIST, carried=False) == []
+
+
+def test_point_supplier_is_a_leak_when_the_item_is_carried():
+    leaks = dimensions.confidentiality_leaks(
+        "Ours is the Invitrogen one.", item_names=["DMEM - 500ml"],
+        denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("Invitrogen", "D4B")]
+
+
+def test_a_token_is_reported_once_however_often_it_appears():
+    leaks = dimensions.confidentiality_leaks(
+        "GenDEPOT makes it. GenDEPOT is the manufacturer.",
+        item_names=[], denylist=DENYLIST, carried=True)
+    assert len(leaks) == 1
+
+
+def test_detection_is_case_insensitive():
+    leaks = dimensions.confidentiality_leaks(
+        "it's made by gendepot.", item_names=[], denylist=DENYLIST, carried=True)
+    assert leaks == [dimensions.Leak("GenDEPOT", "D4B")]

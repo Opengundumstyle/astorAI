@@ -128,3 +128,66 @@ _NUMERIC = (
 
 def numeric_violations(reply: str) -> list[str]:
     return [label for label, pattern in _NUMERIC if pattern.search(reply)]
+
+
+# --------------------------------------------------------------------------- #
+# D4 — confidentiality, split by who can fix it.
+#
+#   D4A  the token also appears in a product name this turn returned. The model
+#        repeated its own catalog. Catalog-normalisation backlog; scores no
+#        model cell, because the UI card renders that same name regardless.
+#   D4B  the token appears nowhere it was given. Recall, inference or
+#        confirmation. This is the model failure, and it is blocking.
+# --------------------------------------------------------------------------- #
+from dataclasses import dataclass   # noqa: E402  (kept beside its only user)
+
+HOUSE_BRANDS = frozenset({"astor scientific", "astorscientific"})
+
+# Brands that are also major third-party suppliers. The prompt's POINT clause
+# permits naming these generically, but only for something Astor does not carry.
+POINT_PERMITTED = frozenset({"invitrogen", "corning", "genscript", "yeasen"})
+
+_VENDOR_CODE = re.compile(r"\b(?:TBS|TBI|TMP|TMC|TMD|TMI|TMM)\d{3,5}\b")
+TRADE_NAMES = ("amfiSure", "AccurSTART", "Tribo", "Hybrid-R", "Opti-Gold", "Sepro")
+
+
+@dataclass(frozen=True)
+class Leak:
+    token: str
+    kind: str    # "D4A" (catalog hygiene) | "D4B" (model adherence)
+
+
+def build_denylist(brands: list[str | None]) -> list[str]:
+    """Third-party brands only. The house brand is Astor's own and is permitted.
+
+    No MPN denylist is built: the column is populated on 3 of 16,019 rows, and
+    the role gate never hands it to the model anyway.
+    """
+    kept = {b.strip() for b in brands if b and b.strip()
+            and b.strip().lower() not in HOUSE_BRANDS}
+    return sorted(kept, key=len, reverse=True)
+
+
+def confidentiality_leaks(reply: str, item_names: list[str], denylist: list[str],
+                          *, carried: bool) -> list[Leak]:
+    lowered = reply.lower()
+    names = " ".join(item_names).lower()
+
+    candidates: list[str] = []
+    for brand in denylist:
+        if brand.lower() in lowered:
+            if not carried and brand.lower() in POINT_PERMITTED:
+                continue     # POINT clause: allowed for something we don't stock
+            candidates.append(brand)
+    candidates += [m.group(0) for m in _VENDOR_CODE.finditer(reply)]
+    candidates += [t for t in TRADE_NAMES if t.lower() in lowered]
+
+    leaks: list[Leak] = []
+    seen: set[str] = set()
+    for token in candidates:
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        leaks.append(Leak(token, "D4A" if key in names else "D4B"))
+    return leaks
