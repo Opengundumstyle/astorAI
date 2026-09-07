@@ -44,3 +44,87 @@ def format_violations(reply: str, named: list[str]) -> list[str]:
     if len(named) > MAX_NAMED_ITEMS:
         violations.append(f"named_items:{len(named)}")
     return violations
+
+
+# --------------------------------------------------------------------------- #
+# D2 — grounding. An entity in the prose that no tool returned is invented.
+# --------------------------------------------------------------------------- #
+_QUOTED = re.compile(r'[""]([^""]{3,80})[""]')
+_SKU = re.compile(r"\b[A-Z]{2,}[-\s]?\d{3,}\b")
+_CAP_PHRASE = re.compile(
+    r"\b([A-Z][A-Za-z0-9/\-]+(?:\s+[A-Z0-9][A-Za-z0-9/\-]*){1,5})\b")
+_UNIT = re.compile(
+    r"\b\d+(?:\.\d+)?\s*(?:ml|l|mg|g|ug|kg|%|x|well|samples?|rxns?)\b", re.IGNORECASE)
+_DIGIT = re.compile(r"\d")
+
+# Support threshold: the share of an entity's significant tokens that must appear
+# somewhere in the returned item names for it to count as grounded. Names in this
+# catalog are punctuation-heavy ("DMEM ,High Glucose ... - 500ml"), so an exact
+# string match would report hallucinations that are nothing of the kind.
+_SUPPORT = 0.6
+
+
+def _significant(text: str) -> list[str]:
+    return [t for t in re.split(r"[^a-z0-9]+", text.lower()) if len(t) >= 3]
+
+
+def _product_shaped(phrase: str) -> bool:
+    """Keep precision high: a capitalised phrase is only a product candidate if it
+    also carries a number or a unit. 'Want One' is not a product; 'Trypsin EDTA
+    100 mL' is."""
+    return bool(_DIGIT.search(phrase) or _UNIT.search(phrase))
+
+
+def entities(reply: str) -> list[str]:
+    """Product-shaped things the prose names. Order-preserving, deduped."""
+    found: list[str] = [m.group(1).strip() for m in _QUOTED.finditer(reply)]
+    found += [m.group(0) for m in _SKU.finditer(reply)]
+    found += [m.group(1) for m in _CAP_PHRASE.finditer(reply) if _product_shaped(m.group(1))]
+
+    # Longest first, then drop anything contained in something already kept: the
+    # capitalised run inside a quoted product name is the same entity, and
+    # reporting both would double-count every hallucination.
+    kept: list[str] = []
+    for entity in sorted(found, key=len, reverse=True):
+        lowered = entity.lower()
+        if not any(lowered in k.lower() for k in kept):
+            kept.append(entity)
+
+    survivors = {k.lower() for k in kept}
+    out: list[str] = []
+    seen: set[str] = set()
+    for entity in found:                 # restore the order the prose used
+        lowered = entity.lower()
+        if lowered in survivors and lowered not in seen:
+            seen.add(lowered)
+            out.append(entity)
+    return out
+
+
+def grounding_violations(reply: str, item_names: list[str]) -> list[str]:
+    """Entities the turn cited that no tool returned."""
+    haystack = " ".join(item_names).lower()
+    unsupported = []
+    for entity in entities(reply):
+        tokens = _significant(entity)
+        if not tokens:
+            continue
+        hits = sum(1 for t in tokens if t in haystack)
+        if hits / len(tokens) < _SUPPORT:
+            unsupported.append(entity)
+    return unsupported
+
+
+# R11: no tool can supply a price, a lead time or a CoA figure, so any of them
+# appearing at all is fabricated regardless of what else the turn did.
+_NUMERIC = (
+    ("currency", re.compile(r"[$£€]\s?\d|\b\d+(?:\.\d{2})?\s?(?:usd|dollars|eur|gbp)\b",
+                            re.IGNORECASE)),
+    ("lead_time", re.compile(r"\b\d+\s*(?:to\s*\d+\s*)?(?:business\s+)?(?:day|week|month)s?\b",
+                             re.IGNORECASE)),
+    ("endotoxin", re.compile(r"\b\d+(?:\.\d+)?\s*eu\s*/\s*(?:mg|ml)\b", re.IGNORECASE)),
+)
+
+
+def numeric_violations(reply: str) -> list[str]:
+    return [label for label, pattern in _NUMERIC if pattern.search(reply)]
