@@ -73,3 +73,48 @@ def aggregate(results: list[tuple[str, str, bool]]) -> list[Cell]:
 
 def failing(cells: list[Cell]) -> list[Cell]:
     return [c for c in cells if c.bar is not None and c.rate < c.bar]
+
+
+_HEADER = f"{'row':<5}{'dim':<6}{'pass':>8}{'rate':>8}{'95% CI':>16}{'bar':>7}  status"
+_RULE = "-" * len(_HEADER)
+
+
+def render_scorecard(cells: list[Cell], *, calibrated: bool) -> str:
+    lines = [_HEADER, _RULE]
+    for cell in cells:
+        low, high = cell.interval
+        bar = "  --  " if cell.bar is None else f"{cell.bar:>6.2f}"
+        if cell.bar is None:
+            status = "report"          # D4A: surfaced, never gated
+        elif cell.rate < cell.bar:
+            status = "FAIL"
+        else:
+            status = "ok"
+        if cell.dim == "D5" and not calibrated:
+            status += " (uncalibrated)"
+        lines.append(
+            f"{cell.row:<5}{cell.dim:<6}{cell.passes:>4}/{cell.runs:<3}"
+            f"{cell.rate:>8.2f}{f'[{low:.2f}, {high:.2f}]':>16}{bar}  {status}"
+        )
+
+    failures = failing(cells)
+    lines += [_RULE, "GATE: PASS" if not failures else "GATE: FAIL"]
+    lines += [f"  - {c.row}/{c.dim}: {c.rate:.2f} < {c.bar:.2f}" for c in failures]
+    if not calibrated and any(c.dim == "D5" for c in cells):
+        lines.append("  ! D5 is uncalibrated — no human agreement measured. "
+                     "Treat those cells as indicative, not as a result.")
+    return "\n".join(lines)
+
+
+def render_backlog(leaks: list[tuple[str, int]]) -> str:
+    """D4A: vendor tokens the assistant echoed out of product names it was given.
+
+    Not a model failure — the name is what the tool returned and what the UI card
+    renders. This is the catalog-normalisation worklist.
+    """
+    if not leaks:
+        return "D4A catalog-normalisation backlog: none observed."
+    lines = ["D4A catalog-normalisation backlog (vendor tokens carried in product names):",
+             f"  {'token':<24}{'turns':>6}"]
+    lines += [f"  {token:<24}{count:>6}" for token, count in leaks]
+    return "\n".join(lines)

@@ -72,3 +72,56 @@ def test_failing_returns_only_cells_below_their_own_bar():
         report.Cell("R3", "D2", passes=9, runs=10),    # 0.90, bar 1.00 -> FAIL
     ]
     assert [(c.row, c.dim) for c in report.failing(cells)] == [("R3", "D2")]
+
+
+# ------------------------------------------------------------------ rendering #
+def test_scorecard_shows_the_fraction_and_the_interval():
+    rendered = report.render_scorecard(
+        [report.Cell("R1", "D1", passes=18, runs=20)], calibrated=True)
+    assert "R1" in rendered
+    assert "18/20" in rendered
+    assert "0.90" in rendered
+    assert "[" in rendered and "]" in rendered   # the interval
+
+
+def test_scorecard_flags_a_cell_below_its_bar():
+    rendered = report.render_scorecard(
+        [report.Cell("R3", "D2", passes=9, runs=10)], calibrated=True)
+    assert "FAIL" in rendered
+    assert "R3" in rendered
+
+
+def test_scorecard_passes_when_every_cell_clears_its_bar():
+    rendered = report.render_scorecard(
+        [report.Cell("R1", "D1", passes=10, runs=10)], calibrated=True)
+    assert "GATE: PASS" in rendered
+
+
+def test_uncalibrated_judge_is_marked_on_science_cells():
+    rendered = report.render_scorecard(
+        [report.Cell("R7", "D5", passes=9, runs=10)], calibrated=False)
+    assert "uncalibrated" in rendered
+
+
+def test_calibrated_run_carries_no_marker():
+    rendered = report.render_scorecard(
+        [report.Cell("R7", "D5", passes=9, runs=10)], calibrated=True)
+    assert "uncalibrated" not in rendered
+
+
+def test_d4a_cell_renders_without_a_bar():
+    """Catalog hygiene is reported, never gated."""
+    rendered = report.render_scorecard(
+        [report.Cell("R1", "D4A", passes=0, runs=10)], calibrated=True)
+    assert "GATE: PASS" in rendered
+    assert "D4A" in rendered
+
+
+def test_backlog_lists_tokens_and_counts():
+    rendered = report.render_backlog([("TBS8083", 4), ("Tribo", 2)])
+    assert "TBS8083" in rendered
+    assert "4" in rendered
+
+
+def test_empty_backlog_says_so():
+    assert "none" in report.render_backlog([]).lower()
