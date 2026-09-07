@@ -59,8 +59,9 @@ def test_quoted_phrase_is_an_entity():
 
 
 def test_curly_quoted_phrase_is_an_entity():
-    assert 'trypsin edta 100 ml' in dimensions.entities(
-        'We have "trypsin edta 100 ml" in stock.')
+    """Chat models emit smart quotes; the extractor must see through them."""
+    reply = "We have “Matrigel Growth Factor Reduced 10 mL” in stock."
+    assert "Matrigel Growth Factor Reduced 10 mL" in dimensions.entities(reply)
 
 
 def test_sku_shaped_token_is_an_entity():
