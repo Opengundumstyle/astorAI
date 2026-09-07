@@ -627,7 +627,7 @@ def numeric_violations(reply: str) -> list[str]:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_bench_dimensions.py -v`
-Expected: PASS, 21 tests.
+Expected: PASS, 22 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -807,7 +807,7 @@ def confidentiality_leaks(reply: str, item_names: list[str], denylist: list[str]
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_bench_dimensions.py -v`
-Expected: PASS, 31 tests.
+Expected: PASS, 32 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -1970,7 +1970,7 @@ def score_run(probe, replies: list[str], items_per_turn: list[list[str]],
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `.venv/bin/python -m pytest tests/test_bench_dimensions.py -v`
-Expected: PASS, 44 tests.
+Expected: PASS, 45 tests.
 
 - [ ] **Step 5: Hoist the imports**
 
