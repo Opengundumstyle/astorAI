@@ -189,3 +189,36 @@ def test_backlog_is_ordered_by_frequency():
         {"probe": "P02", "row": "R1", "run": 1, "turns": [turn("B (TMP081)")]},
     ]
     assert run_bench.backlog(transcripts, []) == [("TBS8083", 2), ("TMP081", 1)]
+
+
+# -------------------------------------------------------------------- label #
+def test_label_worksheet_includes_the_probe_the_answer_and_the_rubric():
+    sheet = run_bench.label_worksheet(_transcript(), _corpus())
+    assert "P21" in sheet
+    assert "Try more blocking" in sheet
+    assert "names a cause" in sheet
+    assert "VERDICT" in sheet
+
+
+def test_label_worksheet_grades_the_final_turn_of_a_conversation():
+    transcripts = [{"probe": "P21", "row": "R7", "run": 1, "turns": [
+        {"ask": "q1", "reply": "first", "items": []},
+        {"ask": "q2", "reply": "second", "items": []}]}]
+    sheet = run_bench.label_worksheet(transcripts, _corpus())
+    assert "second" in sheet
+    assert "first" not in sheet
+
+
+def test_label_worksheet_skips_probes_the_judge_never_graded():
+    """kappa compares two raters on the same items, so a transcript the judge
+    never scored must not reach the human."""
+    corpus = [probes_mod.Probe(id="P21", row="R7", turns=("q",), dimensions=("D8",))]
+    assert "No judged transcripts" in run_bench.label_worksheet(_transcript(), corpus)
+
+
+def test_label_worksheet_is_reproducible_for_a_seed():
+    many = [{"probe": "P21", "row": "R7", "run": n,
+             "turns": [{"ask": "q", "reply": f"answer {n}", "items": []}]}
+            for n in range(40)]
+    first = run_bench.label_worksheet(many, _corpus(), size=5, seed=3)
+    assert first == run_bench.label_worksheet(many, _corpus(), size=5, seed=3)

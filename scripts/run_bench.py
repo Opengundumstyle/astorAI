@@ -201,6 +201,43 @@ def backlog(transcripts: list[dict], denylist: list[str]) -> list[tuple[str, int
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
 
 
+def label_worksheet(transcripts: list[dict], corpus: list, *, size: int = 20,
+                    seed: int = 0) -> str:
+    """A worksheet for a human to label, drawn from the transcripts the judge scored.
+
+    Only D5 probes are eligible: kappa compares two raters on the SAME items, so a
+    sample containing transcripts the judge never graded would not be comparable.
+    Stratified and seeded by `calibration.sample_for_labelling`, so the set does not
+    over-represent whichever row carries the most probes and a disputed kappa can be
+    re-derived from the same transcripts.
+    """
+    from astor.eval import calibration
+
+    by_id = {p.id: p for p in corpus}
+    eligible = [t for t in transcripts
+                if (probe := by_id.get(t["probe"])) is not None
+                and "D5" in probe.dimensions and probe.rubric is not None]
+    if not eligible:
+        return "No judged transcripts to label — run with --judge first."
+
+    chosen = calibration.sample_for_labelling(eligible, size=size, seed=seed)
+    lines = [f"Label {len(chosen)} transcripts pass/fail, then re-run with --kappa.",
+             ""]
+    for n, transcript in enumerate(chosen, 1):
+        probe = by_id[transcript["probe"]]
+        final = transcript["turns"][-1]
+        lines += [f"--- {n}. {probe.id} ({probe.row}) run {transcript['run']} ---",
+                  f"ASKED:  {final['ask']}",
+                  f"ANSWER: {final['reply']}",
+                  "MUST CONVEY:"]
+        lines += [f"  - {c}" for c in probe.rubric.must_convey]
+        if probe.rubric.disqualifiers:
+            lines.append("DISQUALIFIERS:")
+            lines += [f"  - {d}" for d in probe.rubric.disqualifiers]
+        lines += ["VERDICT (write pass or fail): ____", ""]
+    return "\n".join(lines)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probes", type=Path, default=_CORPUS)
@@ -218,16 +255,24 @@ def main() -> None:
                     help="run the D5 science judge over the collected transcripts")
     ap.add_argument("--kappa", type=float, default=None,
                     help="measured judge-vs-human agreement; marks D5 calibrated")
+    ap.add_argument("--label", type=Path, default=None,
+                    help="print a labelling worksheet from a saved transcripts JSON "
+                         "file and exit; no turns are run")
     args = ap.parse_args()
-
-    secret = settings.shopify_app_proxy_secret or settings.shopify_client_secret
-    if not secret:
-        raise SystemExit("needs SHOPIFY_APP_PROXY_SECRET (or client secret) in .env")
 
     corpus = probes.load_probes(args.probes)
     if args.only:
         wanted = {p.strip() for p in args.only.split(",")}
         corpus = [p for p in corpus if p.id in wanted]
+
+    if args.label:
+        saved = json.loads(args.label.read_text())
+        print(label_worksheet(saved, corpus))
+        return
+
+    secret = settings.shopify_app_proxy_secret or settings.shopify_client_secret
+    if not secret:
+        raise SystemExit("needs SHOPIFY_APP_PROXY_SECRET (or client secret) in .env")
 
     denylist = dimensions.build_denylist(
         _brands_from_db() if args.brands_from_db else _BRANDS)
@@ -313,6 +358,10 @@ def main() -> None:
             scorecard + "\n\n" + backlog_report + failures_section
             + "\n\n## Transcripts\n\n" + json.dumps(transcripts, indent=2))
         print(f"\nreport written to {args.out}")
+
+        transcripts_path = args.out.with_suffix(".transcripts.json")
+        transcripts_path.write_text(json.dumps(transcripts, indent=2))
+        print(f"transcripts written to {transcripts_path}")
 
     sys.exit(0 if not report.failing(cells) else 1)
 
