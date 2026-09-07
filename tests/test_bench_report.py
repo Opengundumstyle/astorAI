@@ -154,3 +154,65 @@ def test_latency_report_shows_both_percentiles_and_the_turn_count():
 
 def test_latency_report_with_no_turns_says_so():
     assert "no turns" in report.render_latency([]).lower()
+
+
+# -------------------------------------------- I7: the gate and the D5 caveat #
+def test_an_uncalibrated_science_cell_does_not_gate():
+    """The report says an uncalibrated D5 cell is indicative and not a result.
+    Letting it drive GATE: FAIL and the exit code would be gating on decoration."""
+    cells = [report.Cell("R7", "D5", passes=5, runs=10)]     # 0.50, bar 0.85
+    assert report.failing(cells, calibrated=False) == []
+    assert [(c.row, c.dim) for c in report.failing(cells, calibrated=True)] == [
+        ("R7", "D5")]
+
+
+def test_failing_defaults_to_treating_the_judge_as_calibrated():
+    """The default keeps every existing caller's behaviour."""
+    cells = [report.Cell("R7", "D5", passes=5, runs=10)]
+    assert report.failing(cells) == report.failing(cells, calibrated=True)
+
+
+def test_an_uncalibrated_science_cell_below_its_bar_does_not_print_the_gate_word():
+    rendered = report.render_scorecard(
+        [report.Cell("R7", "D5", passes=5, runs=10)], calibrated=False)
+    assert "GATE: PASS" in rendered
+    assert "below bar" in rendered
+    assert "FAIL" not in rendered
+
+
+def test_an_uncalibrated_deterministic_cell_still_gates():
+    """Only D5 rides on the judge; a blocking deterministic cell is unaffected."""
+    rendered = report.render_scorecard(
+        [report.Cell("R3", "D2", passes=9, runs=10)], calibrated=False)
+    assert "GATE: FAIL" in rendered
+
+
+# ----------------------------------------- C2: the per-probe breakdown table #
+def test_a_probe_keyed_table_renders_without_a_second_gate_verdict():
+    """The row matrix owns the gate. A second GATE line under the per-probe
+    table could contradict it and would not be the one driving the exit code."""
+    rendered = report.render_scorecard(
+        [report.Cell("P04", "D1", passes=2, runs=5)],
+        calibrated=True, gate=False, key_label="probe")
+    assert "GATE" not in rendered
+    assert "below bar:" in rendered
+    assert "P04/D1" in rendered
+    assert rendered.splitlines()[0].startswith("probe")
+
+
+def test_a_probe_keyed_table_says_so_when_every_probe_clears():
+    rendered = report.render_scorecard(
+        [report.Cell("P04", "D1", passes=5, runs=5)],
+        calibrated=True, gate=False, key_label="probe")
+    assert "no cell below its bar" in rendered
+
+
+def test_aggregate_is_key_agnostic_so_probe_ids_aggregate_too():
+    """C2's whole mechanism: the same aggregator, keyed by probe id, is what
+    stops one failing probe hiding inside a green row cell."""
+    cells = report.aggregate(
+        [("P01", "D1", True)] * 5 + [("P04", "D1", False)] * 3 + [("P04", "D1", True)] * 2)
+    by_key = {(c.row, c.dim): c for c in cells}
+    assert by_key[("P04", "D1")].passes == 2
+    assert by_key[("P04", "D1")].rate == 0.4
+    assert [(c.row, c.dim) for c in report.failing(cells)] == [("P04", "D1")]

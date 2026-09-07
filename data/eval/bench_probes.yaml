@@ -65,7 +65,10 @@
   row: R2
   turns: ["I need 500ml of DMEM with high glucose"]
   dimensions: [D1, D2, D5, D8]
-  must_match: "500"
+  # "500" would pass on "DMEM Low Glucose - 500ml", making D1 nearly free on a
+  # probe whose whole point is the glucose constraint. D1 asserts only that a
+  # DMEM was surfaced; the rubric below carries the spec.
+  must_match: "DMEM"
   rubric:
     must_convey: ["offers a DMEM that is both high-glucose and 500 mL"]
     disqualifiers: ["offers a volume other than 500 mL without saying so",

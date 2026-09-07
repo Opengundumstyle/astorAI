@@ -71,38 +71,63 @@ def aggregate(results: list[tuple[str, str, bool]]) -> list[Cell]:
             for (row, dim), (passes, runs) in sorted(tally.items())]
 
 
-def failing(cells: list[Cell]) -> list[Cell]:
-    return [c for c in cells if c.bar is not None and c.rate < c.bar]
+def failing(cells: list[Cell], *, calibrated: bool = True) -> list[Cell]:
+    """Cells below their own bar.
+
+    An uncalibrated D5 cell is excluded. The report already says those cells are
+    indicative and not a result; letting them drive the gate anyway would be
+    gating on decoration, and would fail a release on a judge nobody has checked
+    against a human.
+    """
+    return [c for c in cells
+            if c.bar is not None and c.rate < c.bar
+            and not (c.dim == "D5" and not calibrated)]
 
 
-_HEADER = f"{'row':<5}{'dim':<6}{'pass':>8}{'rate':>8}{'95% CI':>16}{'bar':>7}  status"
+def _header(key_label: str = "row") -> str:
+    return (f"{key_label:<5}{'dim':<6}{'pass':>8}{'rate':>8}"
+            f"{'95% CI':>16}{'bar':>7}  status")
+
+
+_HEADER = _header()
 _RULE = "-" * len(_HEADER)
 
 
-def render_scorecard(cells: list[Cell], *, calibrated: bool) -> str:
-    lines = [_HEADER, _RULE]
+def render_scorecard(cells: list[Cell], *, calibrated: bool, gate: bool = True,
+                     key_label: str = "row") -> str:
+    """`gate=False` renders the same table without the GATE verdict — used for the
+    per-probe breakdown, so that exactly one GATE line in a report is the gate.
+    `key_label` names the first column, which is a probe id in that breakdown."""
+    lines = [_header(key_label), _RULE]
     for cell in cells:
         low, high = cell.interval
         bar = "  --  " if cell.bar is None else f"{cell.bar:>6.2f}"
+        uncalibrated = cell.dim == "D5" and not calibrated
         if cell.bar is None:
             status = "report"          # D4A: surfaced, never gated
-        elif cell.rate < cell.bar:
-            status = "FAIL"
-        else:
+        elif cell.rate >= cell.bar:
             status = "ok"
-        if cell.dim == "D5" and not calibrated:
+        else:
+            # An uncalibrated D5 cell is below its bar but does not gate, so it
+            # must not print the word the gate uses.
+            status = "below bar" if uncalibrated else "FAIL"
+        if uncalibrated:
             status += " (uncalibrated)"
         lines.append(
             f"{cell.row:<5}{cell.dim:<6}{cell.passes:>4}/{cell.runs:<3}"
             f"{cell.rate:>8.2f}{f'[{low:.2f}, {high:.2f}]':>16}{bar}  {status}"
         )
 
-    failures = failing(cells)
-    lines += [_RULE, "GATE: PASS" if not failures else "GATE: FAIL"]
+    failures = failing(cells, calibrated=calibrated)
+    if gate:
+        lines += [_RULE, "GATE: PASS" if not failures else "GATE: FAIL"]
+    else:
+        lines += [_RULE, "no cell below its bar" if not failures else "below bar:"]
     lines += [f"  - {c.row}/{c.dim}: {c.rate:.2f} < {c.bar:.2f}" for c in failures]
     if not calibrated and any(c.dim == "D5" for c in cells):
         lines.append("  ! D5 is uncalibrated — no human agreement measured. "
-                     "Treat those cells as indicative, not as a result.")
+                     "Treat those cells as indicative, not as a result: they are "
+                     "reported here and excluded from the gate.")
     return "\n".join(lines)
 
 

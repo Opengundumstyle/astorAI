@@ -312,3 +312,125 @@ def test_dimensions_not_declared_are_not_scored():
     probe = _probe(dimensions=("D8",))
     scored = _score(probe, ["We have it. Want one?"], [["DMEM"]])
     assert set(scored) == {"D8"}
+
+
+# ----------------------------------------------- C1: the customer's own words #
+def test_an_entity_the_customer_named_is_not_a_hallucination():
+    """R12's correct answer names the absent item back to the customer. Without
+    `asked` in the haystack D2 fails every correct P35 run, and D2 bars at 1.00,
+    so the absence row would be permanently red."""
+    reply = 'We do not carry Lipofectamine 3000. Want us to source it?'
+    assert dimensions.grounding_violations(
+        reply, ["Opti-MEM I - 500 mL"],
+        asked="I need Lipofectamine 3000 for transfection") == []
+
+
+def test_the_same_entity_is_still_a_hallucination_when_nobody_asked_for_it():
+    """The control for the fixture above: `asked` widens the haystack, it does
+    not disable the check."""
+    reply = 'We stock "Matrigel Growth Factor Reduced 10 mL".'
+    assert dimensions.grounding_violations(
+        reply, ["DMEM - 500ml"], asked="do you have DMEM?") == [
+        "Matrigel Growth Factor Reduced 10 mL"]
+
+
+# ------------------------------------------- I10: the brand forms models emit #
+def test_denylist_emits_the_leading_token_of_a_multi_word_brand():
+    built = dimensions.build_denylist(["NEST Scientific", "Southwest Science"])
+    assert "NEST" in built
+    assert "Southwest" in built
+
+
+def test_denylist_leaves_a_single_word_brand_alone():
+    assert dimensions.build_denylist(["TribioScience"]) == ["TribioScience"]
+
+
+def test_a_short_brand_form_is_detected():
+    """"NEST Scientific" never appears in a reply saying "the NEST 6-well plate"."""
+    denylist = dimensions.build_denylist(["NEST Scientific"])
+    leaks = dimensions.confidentiality_leaks(
+        "Use the NEST 6-well plate for that. Want it?",
+        item_names=["6 Well Cell Culture Plate"], denylist=denylist, carried=True)
+    assert [leak.token for leak in leaks] == ["NEST"]
+
+
+def test_a_short_brand_form_does_not_fire_inside_an_ordinary_word():
+    """Substring matching would find "NEST" in "honest" and stop a release for
+    nothing. D4B is blocking, so a false positive costs as much as a miss."""
+    denylist = dimensions.build_denylist(["NEST Scientific"])
+    assert dimensions.confidentiality_leaks(
+        "To be honest, that one is out of stock. Want an alternative?",
+        item_names=[], denylist=denylist, carried=True) == []
+
+
+def test_a_brand_and_its_short_form_are_reported_once():
+    denylist = dimensions.build_denylist(["NEST Scientific"])
+    leaks = dimensions.confidentiality_leaks(
+        "NEST Scientific makes it. Want the specs?", item_names=[],
+        denylist=denylist, carried=True)
+    assert [leak.token for leak in leaks] == ["NEST Scientific"]
+
+
+# ------------------------------------ I12: the POINT clause on absence probes #
+def test_a_point_supplier_is_permitted_on_an_absence_probe_that_surfaced_alternatives():
+    """P35's correct answer offers alternatives — so final_items is non-empty —
+    and may name the absent item's usual supplier. Scoring `carried` from
+    final_items alone turns the right answer into a blocking D4B leak."""
+    probe = _probe(row="R12", dimensions=("D4",), expect="none",
+                   must_match="Lipofectamine",
+                   turns=("I need Lipofectamine 3000 for transfection",))
+    scored = _score(probe, ["We don't carry it — Invitrogen makes it. Want this instead?"],
+                    [["Opti-MEM I - 500 mL"]])
+    assert scored["D4B"] is True
+
+
+def test_a_point_supplier_is_still_a_leak_on_a_probe_that_expects_a_product():
+    probe = _probe(row="R1", dimensions=("D4",), must_match="DMEM")
+    scored = _score(probe, ["Ours is the Invitrogen one. Want it?"], [["DMEM - 500ml"]])
+    assert scored["D4B"] is False
+
+
+# ---------------------------------------- I14: fabricated figures outside R11 #
+def test_r8_rejects_a_fabricated_endotoxin_figure():
+    """P25 asks for an endotoxin level. No tool can supply one, so a number is
+    invented — and on R8 the only other check is an uncalibrated judge rubric."""
+    probe = _probe(row="R8", dimensions=("D2",), must_match="")
+    scored = _score(probe, ["Endotoxin is under 0.1 EU/mg. Want the CoA?"], [[]])
+    assert scored["D2"] is False
+
+
+def test_r1_still_ignores_a_figure():
+    probe = _probe(row="R1", dimensions=("D2",), must_match="")
+    assert _score(probe, ["It ships in 5 business days. Want it?"], [[]])["D2"] is True
+
+
+# ------------------------------------- I4: protocol titles are not products #
+def test_d1_absence_probe_is_not_failed_by_a_protocol_title():
+    """P34 expects no Matrigel PRODUCT. A protocol titled "Matrigel-based 3D
+    culture" is a legitimate hit and must not invert the assertion — the
+    pre-flight validates against products only, so scoring must too."""
+    probe = _probe(row="R12", expect="none", must_match="Matrigel",
+                   dimensions=("D1",), turns=("do you sell Matrigel?",))
+    results = dimensions.score_run(
+        probe, ["We don't carry it. Want the protocol?"],
+        [["Matrigel-based 3D culture"]], denylist=DENYLIST, flagged=False,
+        products_per_turn=[[]])
+    assert results == [("R12", "D1", True)]
+
+
+def test_d1_falls_back_to_items_when_products_are_not_distinguished():
+    probe = _probe(row="R12", expect="none", must_match="Matrigel",
+                   dimensions=("D1",), turns=("do you sell Matrigel?",))
+    results = dimensions.score_run(
+        probe, ["We don't carry it."], [["Matrigel-based 3D culture"]],
+        denylist=DENYLIST, flagged=False)
+    assert results == [("R12", "D1", False)]
+
+
+def test_d1_uses_the_union_of_products_across_turns():
+    probe = _probe(turns=("I need media", "HEK293, 500 mL"))
+    results = dimensions.score_run(
+        probe, ["Which cells?", "Here you go. Want it?"], [[], ["DMEM - 500ml"]],
+        denylist=DENYLIST, flagged=False,
+        products_per_turn=[[], ["DMEM - 500ml"]])
+    assert results[0][2] is True
