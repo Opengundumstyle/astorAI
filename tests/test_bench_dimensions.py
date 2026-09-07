@@ -58,6 +58,11 @@ def test_quoted_phrase_is_an_entity():
         'We stock "DMEM High Glucose 500 mL" today.')
 
 
+def test_curly_quoted_phrase_is_an_entity():
+    assert 'trypsin edta 100 ml' in dimensions.entities(
+        'We have "trypsin edta 100 ml" in stock.')
+
+
 def test_sku_shaped_token_is_an_entity():
     assert "TBS8083" in dimensions.entities("That one is TBS8083.")
 

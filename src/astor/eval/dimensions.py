@@ -49,7 +49,7 @@ def format_violations(reply: str, named: list[str]) -> list[str]:
 # --------------------------------------------------------------------------- #
 # D2 — grounding. An entity in the prose that no tool returned is invented.
 # --------------------------------------------------------------------------- #
-_QUOTED = re.compile(r'[""]([^""]{3,80})[""]')
+_QUOTED = re.compile(r'["“]([^"”]{3,80})["”]')
 _SKU = re.compile(r"\b[A-Z]{2,}[-\s]?\d{3,}\b")
 _CAP_PHRASE = re.compile(
     r"\b([A-Z][A-Za-z0-9/\-]+(?:\s+[A-Z0-9][A-Za-z0-9/\-]*){1,5})\b")
