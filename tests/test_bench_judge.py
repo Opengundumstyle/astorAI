@@ -55,9 +55,32 @@ def test_a_refusal_is_a_failed_verdict_not_an_exception():
     assert "refus" in verdict.reason.lower()
 
 
-def test_the_judge_is_blind_to_everything_but_question_rubric_and_reply():
+def test_a_missing_parsed_output_is_also_a_failed_verdict():
+    """parsed_output is Optional in the SDK and can be None even when the model
+    did not refuse — a truncated or malformed response. Tested separately from
+    the refusal case so that narrowing the guard to stop_reason alone fails
+    here, rather than raising in the middle of a 40-minute run."""
+    class _Empty(_FakeClient):
+        def _parse(self, **kwargs):
+            return SimpleNamespace(stop_reason="end_turn", parsed_output=None)
+
+    verdict = judge.judge_science("q", "a", RUBRIC, client=_Empty(None))
+    assert verdict.passed is False
+    assert verdict.reason
+
+
+def test_the_judge_receives_only_the_question_the_reply_and_the_rubric():
+    """Pins the exact payload. Anything smuggled in later — a probe id, a run
+    index, the item list — changes `messages` and fails this test. The earlier
+    form split the stringified kwargs on the word "rubric", which SYSTEM itself
+    contains, so it only ever inspected a static prefix and could not fail."""
+    question = "why is my blot dirty?"
+    reply = "Try more blocking. Want the buffer?"
     client = _FakeClient(judge.Verdict(passed=True, reason="ok"))
-    judge.judge_science("q", "a", RUBRIC, client=client)
-    sent = str(client.calls[0])
-    assert "probe" not in sent.lower()
-    assert "run" not in sent.lower().split("rubric")[0]
+    judge.judge_science(question, reply, RUBRIC, client=client)
+
+    kwargs = client.calls[0]
+    assert kwargs["system"] == judge.SYSTEM
+    assert kwargs["messages"] == [
+        {"role": "user", "content": judge.prompt(question, reply, RUBRIC)}
+    ]
