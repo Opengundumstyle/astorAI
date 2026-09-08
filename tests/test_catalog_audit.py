@@ -105,3 +105,73 @@ def test_neither_tier_fires_when_mpn_is_already_set():
     name = "Tissue DNA Extraction Kit (TBS6006) - 1000 Sample"
     assert audit.recoverable_mpn(name, "TBS6006") is None
     assert audit.possible_mpn("Tribo™ Human CA125 ELISA Kit", "X1") is None
+
+
+# ------------------------------------------------------------- backfill planning #
+def test_stem_ignores_pack_size_and_the_code_itself():
+    a = audit.product_stem("Acipimox, GPR109A agonist (TBI2526) - 100 MG")
+    b = audit.product_stem("Acipimox, GPR109A agonist (TBI2526) - 500 MG")
+    assert a == b, "same product, different pack size -> one identity"
+
+
+def test_stem_separates_genuinely_different_compounds():
+    a = audit.product_stem("Acipimox, GPR109A agonist (TBI2526) - 100 MG")
+    b = audit.product_stem("Dehydrozingerone, Glutathione sponge (TBI2526) - 100 MG")
+    assert a != b, "different compounds must not collapse to one identity"
+
+
+def test_a_code_on_two_rows_is_blocked_by_the_unique_constraint():
+    """`UniqueConstraint("brand", "mpn")` -- "a (brand, mpn) pair identifies one
+    canonical product". Pack-size variants are separate Product ROWS here, so
+    writing one code to both violates the schema. Skip, and say why."""
+    plan, skipped = audit.mpn_backfill_plan([
+        ("1", "5-Fluorouracil, TS inhibitor (TBI1276) - 250 MG", "TribioScience", None),
+        ("2", "5-Fluorouracil, TS inhibitor (TBI1276) - 1 G", "TribioScience", None),
+    ])
+    assert plan == {}
+    assert skipped[("TribioScience", "TBI1276")] == "unique_constraint"
+
+
+def test_a_code_on_exactly_one_row_is_assignable():
+    plan, skipped = audit.mpn_backfill_plan([
+        ("1", "Protein Assay Kit (TBS2005) - 1000 Tests", "TribioScience", None),
+    ])
+    assert plan == {"1": "TBS2005"}
+    assert skipped == {}
+
+
+def test_two_different_products_sharing_a_code_are_flagged_distinctly():
+    """TBI2526 sits on both Acipimox and Dehydrozingerone in the live catalog.
+    That is a vendor/transcription error, not merely a schema collision, so it is
+    reported under its own reason -- it needs fixing, not just skipping."""
+    plan, skipped = audit.mpn_backfill_plan([
+        ("1", "Acipimox, GPR109A agonist (TBI2526) - 100 MG", "TribioScience", None),
+        ("2", "Dehydrozingerone, Glutathione sponge (TBI2526) - 100 MG", "TribioScience", None),
+    ])
+    assert plan == {}
+    assert skipped[("TribioScience", "TBI2526")] == "two_identities"
+
+
+def test_plan_never_overwrites_an_existing_mpn():
+    plan, _ = audit.mpn_backfill_plan([
+        ("1", "Protein Assay Kit (TBS2005) - 1000 Tests", "TribioScience", "ALREADY-SET"),
+    ])
+    assert plan == {}
+
+
+def test_plan_ignores_bare_tokens():
+    """CA125 is an analyte, not a SKU — it must not reach `mpn` via the plan either."""
+    plan, _ = audit.mpn_backfill_plan([
+        ("1", "Tribo Human CA125 ELISA Kit - 1 x 96-well plate", "TribioScience", None),
+    ])
+    assert plan == {}
+
+
+def test_the_same_code_under_two_brands_stays_separate():
+    """MPN is only unique WITHIN a manufacturer, so the key is (brand, code)."""
+    plan, skipped = audit.mpn_backfill_plan([
+        ("1", "Widget (AB123) - 1 G", "BrandOne", None),
+        ("2", "Sprocket (AB123) - 1 G", "BrandTwo", None),
+    ])
+    assert plan == {"1": "AB123", "2": "AB123"}
+    assert skipped == {}
