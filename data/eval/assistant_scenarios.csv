@@ -6,3 +6,6 @@ do you sell trypsin EDTA for passaging cells?,product,trypsin,phrasing wraps the
 I need 500ml of DMEM with high glucose,product,500,numeric attribute must be honoured
 do you carry Eagle's Minimum Essential Medium?,product,minimum essential medium,ASCII apostrophe against the catalog's curly one
 do you stock unobtainium phosphate buffer?,none,unobtainium,a product Astor genuinely does not carry must not be invented
+something to detach adherent cells,product,detach|dissociat|trypsin|accutase,"semantic-only phrasing: zero lexical hits, rescued by the embedding fallback"
+serum free EMEM medium for HEK293 cells,product,HEK|serum free,"long query: coverage floor drops it to zero lexical hits"
+DMEM 1x,product,DMEM,"digit token '1x' appears in no product name; mandatory-token rule zeroes the query"

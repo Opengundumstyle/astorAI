@@ -7,9 +7,12 @@ result so the model can recover rather than 500 the turn.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from astor.api import repo, roles
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -29,12 +32,27 @@ def _public_specs(specs: dict | None) -> dict:
 def _search_products(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
     limit = int(args.get("limit") or 8)
     rows, _ = repo.list_products(session, args["query"], None, 1, limit)
+    semantic = False
+    if not rows:
+        # Zero lexical hits is a retrieval outcome, not proof Astor lacks the item:
+        # 'serum free EMEM medium for HEK293 cells' scores 0 lexically while the
+        # product sits in the catalog. Fall back to the embeddings every product
+        # already has, and tell the model the results are approximate.
+        try:
+            rows = repo.search_products_semantic(session, args["query"], limit)
+            semantic = bool(rows)
+        except Exception:  # noqa: BLE001 — a dead embedder degrades to "nothing found"
+            log.warning("semantic product fallback failed", exc_info=True)
+            rows = []
     # Buyer gate, not a hand-picked field list: `roles` is the single authority on what
     # a buyer may see, so a field added to the product DTO later is withheld from the
     # assistant by default instead of silently reaching a shopper.
     products = [roles.gate_product(r, roles.BUYER) for r in rows]
     items = [ReferencedItem("product", r["id"], r["name"]) for r in rows]
-    return {"products": products}, items
+    result = {"products": products}
+    if semantic:
+        result["match"] = "semantic"
+    return result, items
 
 
 def _protocol_label(row: dict) -> str:

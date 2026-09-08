@@ -155,16 +155,51 @@ def list_products(session, q, category, page, page_size,
             .offset((page - 1) * page_size).limit(page_size)
         ).all()
 
-    ids = [str(p.id) for p in rows]
-    counts = _offer_count_map(session, ids)
-    summaries = [
+    return _summarize(session, rows), total
+
+
+def _summarize(session, rows) -> list[dict]:
+    """Product rows -> buyer-facing summaries. Shared by the lexical and semantic
+    paths so a field added here can never appear on one and not the other."""
+    counts = _offer_count_map(session, [str(p.id) for p in rows])
+    return [
         schemas.product_summary(
             p, offer_count=counts.get(str(p.id), 0),
             best_landed=_best_landed(session, str(p.id), p.category),
         )
         for p in rows
     ]
-    return summaries, total
+
+
+def search_products_semantic(session, q, limit: int = 8, *, embedder=None) -> list[dict]:
+    """Nearest-neighbour rescue for queries the lexical ranker cannot match.
+
+    Reached only when `list_products` found nothing (see `chat/tools.py`). Every
+    product already carries an embedding, so this costs one query vector and an
+    HNSW lookup.
+
+    These rows are the closest things Astor sells — NOT evidence the queried item
+    is stocked. The caller labels them `match: "semantic"` and the system prompt
+    tells the model to present them as "closest I could find".
+
+    No similarity floor, deliberately. Measured against the live catalog, a
+    nonsense query outscores a genuine one -- "unobtainium phosphate buffer"
+    reaches 0.692 (because *phosphate buffer* is a real category) while
+    "something to detach adherent cells" reaches only 0.656. Any threshold that
+    dropped the first would drop the second, so honest framing does that job
+    instead of a number that cannot.
+    """
+    if not (q or "").strip():
+        return []
+    embedder = embedder or get_embedder()
+    vector = embedder.embed([q])[0]
+    rows = session.scalars(
+        select(Product)
+        .where(Product.sellable.is_(True), Product.embedding.isnot(None))
+        .order_by(Product.embedding.cosine_distance(vector))
+        .limit(limit)
+    ).all()
+    return _summarize(session, rows)
 
 
 def get_product_detail(session, product_id: str) -> dict | None:
