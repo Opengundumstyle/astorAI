@@ -1,6 +1,6 @@
 ﻿rule_id,情况,说明,例子A,例子B,影响对数,您的判定（相同/可替代/不可替代/看情况）,备注
-B1_packsize,同一产品，只有包装规格不同,两条记录指向同一个产品，唯一区别是买多少。,"Apilimod, IL12/23 inhibitor (TBI4188) - 25 MG","Apilimod, IL12/23 inhibitor (TBI4188) - 5 MG",23,,
-B2_vessel_capacity,同类耗材，容量不同,同一类器皿，规格不同。,"Centrifuge Tubes, 15 ml, PP, Sterile, Plug-Seal Cap","Centrifuge Tubes, 50 ml, PP, Sterile, Plug-Seal Cap",40,,
-B3_grade_sterility,同类产品，灭菌状态或等级不同,同一个东西，但一个灭菌/标了等级，另一个没有。,"Screw cap micro tube, 1.5 ml, sterile, 500 Piece(s)","Screw cap micro tube, 1.5 ml, 500 Piece(s)",29,,
-B4_formulation,同一基础配方，添加成分不同,同一基础培养基或缓冲液，添加物不同。,DMEM/Ham's F-12 (1:1 Mixture); No Phenol Red - 500ml,"DMEM/Ham's F-12 (1:1 Mixture), With HEPES - 50x500ml",28,,
-B5_crossbrand_function,不同品牌，功能相同,两个不同厂牌的产品用途一样。这是 Astor 最关心的一类。,"Serological pipettes (ThermoFisher, #170356)","Biologix Sterile Serological Pipettes-1ML, 2ML, 5ML",22,,
+B1_packsize,同一产品，只有包装规格不同,两条记录指向同一个产品，唯一区别是买多少。,"Apilimod, IL12/23 inhibitor (TBI4188) - 25 MG","Apilimod, IL12/23 inhibitor (TBI4188) - 5 MG",23,可替代,23/23 判为可替代，无一判为「相同」。同一产品不同包装量：采购时可代用，但不当作同一 SKU。
+B2_vessel_capacity,同类耗材，容量不同,同一类器皿，规格不同。,"Centrifuge Tubes, 15 ml, PP, Sterile, Plug-Seal Cap","Centrifuge Tubes, 50 ml, PP, Sterile, Plug-Seal Cap",40,看情况,容量不同 → 不可替代（34/40）。容量相同、跨品牌同类器皿 → 可替代（6 例，均注「相同容量」）；但若灭菌与否或有无条码不同，仍不可替代。规则：容量是硬条件，容量相同再看灭菌/条码。
+B3_grade_sterility,同类产品，灭菌状态或等级不同,同一个东西，但一个灭菌/标了等级，另一个没有。,"Screw cap micro tube, 1.5 ml, sterile, 500 Piece(s)","Screw cap micro tube, 1.5 ml, 500 Piece(s)",29,不可替代,25/29 不可替代。灭菌 vs 非灭菌不可替代；PCR Performance Tested vs 普通不可替代。例外：serological pipette 一般都是灭菌的，可替代。注意本桶不少对其实孔径/膜材/浓度也不同，并非纯灭菌差异。
+B4_formulation,同一基础配方，添加成分不同,同一基础培养基或缓冲液，添加物不同。,DMEM/Ham's F-12 (1:1 Mixture); No Phenol Red - 500ml,"DMEM/Ham's F-12 (1:1 Mixture), With HEPES - 50x500ml",28,看情况,20/28 不可替代。Charcoal stripped / dialyzed FBS 与普通 FBS 互不替代；各种专用认证 FBS 之间多数不可替代。同一培养基或缓冲液跨品牌（DMEM/F12+HEPES、TMB stop buffer）可替代。Ham’s F12 与 F12K 是不同配方，不可替代（两个模型都判错）。
+B5_crossbrand_function,不同品牌，功能相同,两个不同厂牌的产品用途一样。这是 Astor 最关心的一类。,"Serological pipettes (ThermoFisher, #170356)","Biologix Sterile Serological Pipettes-1ML, 2ML, 5ML",22,看情况,11 不可替代 / 8 可替代 / 3 无法判断。常规试剂与试剂盒（DNA ladder、dNTP、Proteinase K、质粒提取试剂盒、小分子）跨品牌可替代；缓冲液浓度或配方不同（DPBS vs 10X PBS、Tris base vs Tris-HCl、LB vs TB）不可替代；冻存盒材质不同、培养板是否 TC 处理不明 → 无法判断。

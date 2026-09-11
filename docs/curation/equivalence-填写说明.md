@@ -1,5 +1,9 @@
 # 等价判定复核 · 填写说明
 
+> **2026-09-10 已收回。** Mary 逐条填写了全部 182 对（`equivalence-pairs-mary.xlsx`），
+> 未单独填规则表；`equivalence-rules.csv` 的判定和备注由她的逐条结果推导，
+> 完整定义见 `equivalence-rubric.md`，机器可读结果见 `equivalence-gold.csv`。
+
 ## 这是什么
 
 我们用两个 AI 模型给 1,978 组产品判定了「是否等价」。绝大多数它们意见一致，
