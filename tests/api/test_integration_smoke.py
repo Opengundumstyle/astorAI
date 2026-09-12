@@ -24,7 +24,10 @@ def test_seed_then_stats_and_detail():
         items, total = repo.list_products(session, None, None, 1, 20)
         assert total >= 1
         detail = repo.get_product_detail(session, items[0]["id"])
-        assert detail is not None and detail["astor_sku"].startswith("ASR-")
+        assert detail is not None
+        # The demo seed has no Shopify channel offer, so the storefront SKU is
+        # absent -- and must be null, never a UUID-derived placeholder.
+        assert detail["astor_sku"] is None
 
 
 def test_search_ranks_and_filters_against_real_postgres():

@@ -256,3 +256,11 @@ def test_cached_system_survives_a_tool_round(monkeypatch):
     assert len(client.messages.calls) == 2
     for call in client.messages.calls:
         assert call["system"][-1]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_system_prompt_defines_astor_sku_and_the_null_case():
+    """`astor_sku` is now the SKU printed on the store listing, and it is null for
+    products with no Shopify channel offer. The model must know both, or it will
+    either distrust a real SKU or read null as licence to invent one."""
+    assert "astor_sku" in agent.SYSTEM
+    assert "null" in agent.SYSTEM.split("astor_sku", 1)[1][:400]

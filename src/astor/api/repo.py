@@ -12,7 +12,9 @@ from pathlib import Path
 from sqlalchemy import and_, func, select, text
 
 from astor.api import schemas
+from astor.api.skus import pick_storefront_sku
 from astor.catalog import matcher, search
+from astor.config import settings
 from astor.catalog.embeddings import get_embedder
 from astor.catalog.ingestion import ingest
 from astor.db.models import (
@@ -36,6 +38,23 @@ def _offer_count_map(session, product_ids: list[str]) -> dict[str, int]:
         .group_by(SupplierOffer.product_id)
     ).all()
     return {str(pid): n for pid, n in rows}
+
+
+def _storefront_sku_map(session, product_ids: list[str]) -> dict[str, str | None]:
+    """product id -> Shopify channel SKU, one query for the whole page. Products
+    with no channel offer are absent, so `.get()` yields None for them."""
+    if not product_ids:
+        return {}
+    rows = session.execute(
+        select(SupplierOffer.product_id, SupplierOffer.supplier_sku)
+        .join(Supplier, Supplier.id == SupplierOffer.supplier_id)
+        .where(SupplierOffer.product_id.in_(product_ids),
+               Supplier.name == settings.shopify_supplier_name)
+    ).all()
+    skus: dict[str, list[str]] = {}
+    for pid, sku in rows:
+        skus.setdefault(str(pid), []).append(sku)
+    return {pid: pick_storefront_sku(v) for pid, v in skus.items()}
 
 
 def _cheapest_offer(session, product_id: str):
@@ -161,11 +180,14 @@ def list_products(session, q, category, page, page_size,
 def _summarize(session, rows) -> list[dict]:
     """Product rows -> buyer-facing summaries. Shared by the lexical and semantic
     paths so a field added here can never appear on one and not the other."""
-    counts = _offer_count_map(session, [str(p.id) for p in rows])
+    ids = [str(p.id) for p in rows]
+    counts = _offer_count_map(session, ids)
+    skus = _storefront_sku_map(session, ids)
     return [
         schemas.product_summary(
             p, offer_count=counts.get(str(p.id), 0),
             best_landed=_best_landed(session, str(p.id), p.category),
+            astor_sku=skus.get(str(p.id)),
         )
         for p in rows
     ]
@@ -215,7 +237,8 @@ def get_product_detail(session, product_id: str) -> dict | None:
         .where(Equivalence.product_id == product_id)
         .order_by(Equivalence.confidence.desc())
     ).all()
-    equivalents = [(prod, eq.confidence, eq.kind) for eq, prod in eq_rows]
+    skus = _storefront_sku_map(session, [str(prod.id) for _, prod in eq_rows])
+    equivalents = [(prod, eq.confidence, eq.kind, skus.get(str(prod.id))) for eq, prod in eq_rows]
     return schemas.product_detail(product, offers, equivalents)
 
 

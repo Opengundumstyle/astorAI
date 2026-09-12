@@ -5,13 +5,18 @@ Builders never touch the database; they only read attributes. Role gating
 """
 from __future__ import annotations
 
-from astor.api.skus import astor_sku
+from astor.api.skus import storefront_sku
+from astor.config import settings
 
 
-def product_summary(product, offer_count: int, best_landed: float | None) -> dict:
+def product_summary(product, offer_count: int, best_landed: float | None,
+                    astor_sku: str | None) -> dict:
+    """`astor_sku` is the storefront (Shopify variant) SKU, resolved by the caller
+    from the product's offers -- see `skus.storefront_sku`. None when the product
+    has no Shopify channel offer; never a placeholder."""
     return {
         "id": str(product.id),
-        "astor_sku": astor_sku(product.id),
+        "astor_sku": astor_sku,
         "name": product.name,
         "category": product.category,
         "brand": product.brand,
@@ -35,10 +40,10 @@ def offer_out(offer) -> dict:
     }
 
 
-def equivalent_out(product, confidence: float, kind: str) -> dict:
+def equivalent_out(product, confidence: float, kind: str, astor_sku: str | None) -> dict:
     return {
         "id": str(product.id),
-        "astor_sku": astor_sku(product.id),
+        "astor_sku": astor_sku,
         "name": product.name,
         "brand": product.brand,
         "region": None,
@@ -49,16 +54,17 @@ def equivalent_out(product, confidence: float, kind: str) -> dict:
 
 
 def product_detail(product, offers: list, equivalents: list) -> dict:
+    """`equivalents` is a list of (product, confidence, kind, astor_sku)."""
     return {
         "id": str(product.id),
-        "astor_sku": astor_sku(product.id),
+        "astor_sku": storefront_sku(offers, settings.shopify_supplier_name),
         "name": product.name,
         "category": product.category,
         "brand": product.brand,
         "mpn": product.mpn,
         "specs": product.specs or {},
         "offers": [offer_out(o) for o in offers],
-        "equivalents": [equivalent_out(p, c, k) for (p, c, k) in equivalents],
+        "equivalents": [equivalent_out(p, c, k, sku) for (p, c, k, sku) in equivalents],
     }
 
 

@@ -14,7 +14,7 @@ export function EquivalentsPanel({ items }: { items: Equivalent[] }) {
           <div>
             <div className="text-sm font-semibold">{e.name}</div>
             <div className="text-xs" style={{ color: "var(--muted)" }}>
-              {e.astor_sku}{e.brand ? ` · ${e.brand}` : ""}
+              {e.astor_sku ?? "—"}{e.brand ? ` · ${e.brand}` : ""}
             </div>
           </div>
           <div className="flex items-center gap-3">

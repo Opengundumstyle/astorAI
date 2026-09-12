@@ -50,7 +50,7 @@ export function ProductsTable() {
         </div>
         {items.map((p) => (
           <Link key={p.id} href={`/products/${p.id}`} className="grid grid-cols-5 px-3 py-2 text-sm" style={{ borderTop: "1px solid var(--border)" }}>
-            <span style={{ color: "var(--teal)" }}>{p.astor_sku}</span>
+            <span style={{ color: "var(--teal)" }}>{p.astor_sku ?? "—"}</span>
             <span>{p.name}</span>
             <span>{p.category}</span>
             <span>{p.offer_count}</span>

@@ -15,7 +15,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <div className="flex flex-col gap-6">
       <header className="card p-6">
         <div className="text-xs uppercase tracking-wide" style={{ color: "var(--teal)" }}>
-          {product.astor_sku}
+          {product.astor_sku ?? "No storefront SKU"}
         </div>
         <h1 className="mt-1 text-xl font-bold">{product.name}</h1>
         <div className="mt-1 text-sm" style={{ color: "var(--muted)" }}>

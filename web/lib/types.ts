@@ -10,7 +10,7 @@ export interface Stats {
 
 export interface ProductSummary {
   id: string;
-  astor_sku: string;
+  astor_sku: string | null;
   name: string;
   category: string;
   brand?: string | null;
@@ -33,7 +33,7 @@ export interface Offer {
 
 export interface Equivalent {
   id: string;
-  astor_sku: string;
+  astor_sku: string | null;
   name: string;
   brand?: string | null;
   confidence: number;
@@ -42,7 +42,7 @@ export interface Equivalent {
 
 export interface ProductDetail {
   id: string;
-  astor_sku: string;
+  astor_sku: string | null;
   name: string;
   category: string;
   brand?: string | null;
