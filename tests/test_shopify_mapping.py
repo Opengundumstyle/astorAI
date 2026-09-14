@@ -145,3 +145,12 @@ def test_missing_status_defaults_to_sellable():
     node = _node()
     del node["status"], node["publishedAt"]
     assert map_product_node(node, CFG)[0].sellable is True
+
+
+def test_variant_id_is_carried_as_external_id():
+    """The variant id is the only stable key: a SKU can be renamed or shared by
+    two variants (23 are, on the live store), a variant id cannot."""
+    p1 = map_product_node(NODE_WITH_UNIT_COST, CFG)[0]
+    p21, p22 = map_product_node(NODE_NO_UNIT_COST, CFG)
+    assert p1.external_id == "11"
+    assert (p21.external_id, p22.external_id) == ("21", "22")

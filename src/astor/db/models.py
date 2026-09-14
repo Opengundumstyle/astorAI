@@ -130,6 +130,10 @@ class SupplierOffer(Base, TimestampMixin):
         ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True
     )
     supplier_sku: Mapped[str] = mapped_column(String(128), nullable=False)
+    # The source's own stable id for this offer (Shopify: variant id). The sync
+    # key: a SKU can be renamed or shared by two variants, this cannot. NULL on
+    # rows loaded before it existed; the first sync backfills it.
+    external_id: Mapped[str | None] = mapped_column(String(64))
     pack_size: Mapped[str | None] = mapped_column(String(64))
     cost: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="CNY")
@@ -142,6 +146,8 @@ class SupplierOffer(Base, TimestampMixin):
     __table_args__ = (
         # Idempotency: one offer per (supplier, supplier_sku). Re-ingest upserts.
         UniqueConstraint("supplier_id", "supplier_sku", name="uq_offer_supplier_sku"),
+        Index("uq_offer_supplier_external_id", "supplier_id", "external_id", unique=True,
+              postgresql_where=text("external_id IS NOT NULL")),
     )
 
 

@@ -46,6 +46,7 @@ def normalize(item: ExtractedProduct) -> NormalizedItem:
     )
     offer = NormalizedOffer(
         supplier_sku=item.supplier_sku.strip(),
+        external_id=(item.external_id or None) and item.external_id.strip(),
         pack_size=item.pack_size,
         cost=float(item.cost) if item.cost is not None else 0.0,
         currency=item.currency,

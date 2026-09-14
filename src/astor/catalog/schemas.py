@@ -8,6 +8,10 @@ class ExtractedProduct(BaseModel):
     """Raw-ish output of an Extractor, before normalization."""
 
     supplier_sku: str
+    # The source's own stable id for this offer (Shopify: the variant id). A SKU
+    # can be renamed or shared by two variants; this cannot. None for sources
+    # without one (CSV, PDF).
+    external_id: str | None = None
     name: str
     category: str | None = None
     brand: str | None = None
@@ -35,6 +39,7 @@ class NormalizedProduct(BaseModel):
 
 class NormalizedOffer(BaseModel):
     supplier_sku: str
+    external_id: str | None = None
     pack_size: str | None = None
     cost: float
     currency: str = "CNY"

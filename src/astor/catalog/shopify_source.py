@@ -9,6 +9,7 @@ its data lands in Postgres and the agent queries Postgres.
 
 Mapping (one Shopify VARIANT -> one ExtractedProduct/offer):
   supplier_sku   <- variant.sku (fallback: numeric variant id)
+  external_id    <- numeric variant id (the stable sync key; see catalog/sync.py)
   name           <- product.title (+ variant.title when not "Default Title")
   brand          <- product.vendor
   category       <- product.productType (fallback: first tag); canon'd downstream
@@ -228,11 +229,13 @@ def map_product_node(node: dict, cfg: ShopifyConfig) -> list[ExtractedProduct]:
             specs["_cost_basis"] = "unit_cost"
 
         mpn = mpn_from_mf or (v.get("barcode") or "").strip() or None
-        supplier_sku = (v.get("sku") or "").strip() or f"shopify:{_gid_tail(v.get('id',''))}"
+        variant_id = _gid_tail(v.get("id", "")) or None
+        supplier_sku = (v.get("sku") or "").strip() or f"shopify:{variant_id}"
 
         out.append(
             ExtractedProduct(
                 supplier_sku=supplier_sku,
+                external_id=variant_id,
                 name=name or supplier_sku,
                 category=category,
                 brand=vendor,

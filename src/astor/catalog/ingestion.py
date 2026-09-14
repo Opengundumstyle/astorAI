@@ -90,6 +90,7 @@ def upsert_step(
                 supplier_id=supplier.id,
                 product_id=product_id,
                 supplier_sku=o.supplier_sku,
+                external_id=o.external_id,
                 pack_size=o.pack_size,
                 cost=o.cost,
                 currency=o.currency,
@@ -100,6 +101,7 @@ def upsert_step(
                 constraint="uq_offer_supplier_sku",
                 set_={
                     "product_id": product_id,
+                    "external_id": o.external_id,
                     "cost": o.cost,
                     "currency": o.currency,
                     "stock": o.stock,
