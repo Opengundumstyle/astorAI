@@ -10,7 +10,9 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
+from astor import curation
 from astor.api import repo, roles
+from astor.curation import troubleshoot as _troubleshoot_mod
 
 log = logging.getLogger(__name__)
 
@@ -125,6 +127,58 @@ def _flag_sourcing_request(session, args, request_context=None) -> tuple[dict, l
     return {"logged": True, "item": r["requested_item"], "status": r["status"]}, []
 
 
+_matcher: _troubleshoot_mod.Matcher | None = None
+
+
+def matcher() -> _troubleshoot_mod.Matcher:
+    """Row embeddings are computed once per process; a dead embedder leaves the
+    matcher keyword-only rather than failing the tool."""
+    global _matcher
+    if _matcher is None:
+        from astor.catalog.embeddings import get_embedder
+        try:
+            embedder = get_embedder()
+        except Exception:  # noqa: BLE001
+            log.warning("embedder unavailable; troubleshooting is keyword-only", exc_info=True)
+            embedder = None
+        _matcher = _troubleshoot_mod.Matcher(curation.tables(), embedder=embedder)
+    return _matcher
+
+
+def reset_matcher() -> None:
+    global _matcher
+    _matcher = None
+
+
+def _troubleshoot(session, args, request_context=None) -> tuple[dict, list[ReferencedItem]]:
+    """READ: curated symptom -> cause -> fix rows, each fix resolved to catalog products.
+    Deterministic; the model never sees a row that is not in docs/curation/troubleshooting.csv."""
+    symptom = (args.get("symptom") or "").strip()
+    if not symptom:
+        raise ValueError("symptom is required")
+    limit = min(int(args.get("limit") or 5), 10)
+    m = matcher()
+    hits, kind = m.search(symptom, category=args.get("category") or None, limit=limit)
+    entries, items = [], []
+    for h in hits:
+        products, owns = _troubleshoot_mod.resolve_products(session, h.entry, m.tables)
+        gated = [roles.gate_product(p, roles.BUYER) for p in products]
+        items.extend(ReferencedItem("product", p["id"], p["name"]) for p in products)
+        entries.append({
+            "entry_id": h.entry.entry_id,
+            "category_id": h.entry.category_id,
+            "symptom": h.entry.symptom,
+            "likely_cause": h.entry.likely_cause,
+            "check_or_fix": h.entry.check_or_fix,
+            "confidence": h.entry.confidence,
+            "fix_role": h.entry.fix_role,
+            "buy_needed": h.entry.buy_needed,
+            "lab_usually_owns_it": owns,
+            "products": gated,
+        })
+    return {"entries": entries, "match": kind}, items
+
+
 _HANDLERS = {
     "search_products": _search_products,
     "search_protocols": _search_protocols,
@@ -133,6 +187,7 @@ _HANDLERS = {
     "product_detail": _product_detail,
     "protocols_by_material": _protocols_by_material,
     "flag_sourcing_request": _flag_sourcing_request,
+    "troubleshoot": _troubleshoot,
 }
 
 
@@ -195,4 +250,20 @@ TOOL_SCHEMAS = [
                                      "context": {"type": "string"},
                                      "email": {"type": "string"}},
                       "required": ["item"]}},
+    {"name": "troubleshoot",
+     "description": "Look up Astor's curated troubleshooting guidance for a failed or unexpected "
+                    "experimental result: 'no bands', 'no Ct', 'high background', 'cells died', "
+                    "'low transfection efficiency'. Pass the customer's own words as `symptom`. "
+                    "Returns symptom/cause/fix entries and, for each fix, the catalog products "
+                    "that fill the needed role. Entries marked confidence='drafted' are commonly "
+                    "reported causes, not yet confirmed by Astor's specialist; say so.",
+     "input_schema": {"type": "object",
+                      "properties": {
+                          "symptom": {"type": "string",
+                                      "description": "The failure in the customer's words, any language."},
+                          "category": {"type": "string",
+                                       "enum": ["western_blot", "rt_qpcr", "elisa", "cell_culture_transfection"],
+                                       "description": "Omit if unsure; it is inferred from the symptom."},
+                          "limit": {"type": "integer"}},
+                      "required": ["symptom"]}},
 ]

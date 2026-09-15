@@ -1,0 +1,10 @@
+﻿category_id,category_name,why_this_one,has_run_it,notes
+western_blot,Western blot / 蛋白免疫印迹,"首批#1：参考实现。高频、对照经典易漏、已作为示例",yes,"launch #1 — 已填示例；作为其余品类的模板"
+rt_qpcr,RT-qPCR / 实时荧光定量PCR,"首批#2：不同模态（核酸），证明架构不止适用于蛋白；对照最容易漏（NTC/no-RT/内参）→ 最强的缺口检测演示",yes,"launch #2 — 换一个模态，压力测试通用性"
+elisa,ELISA / 酶联免疫吸附,"首批#3：回到蛋白，复用 Western blot 的抗体/对照角色 → 证明相邻品类更省事；对照丰富（标准曲线、空白）",yes,"launch #3 — 复用 roles，验证扩展经济性"
+cell_culture_transfection,Cell culture / transfection / 细胞培养与转染,"备选#4：高频但以试剂为主、硬对照较少 —— 广度压力测试，核心闭环跑通后再做",yes,"backlog #4 — 首批 3 个跑通后再加"
+protein_purification,Protein purification / 蛋白纯化,"覆盖扩展：目录核心（9207 重组蛋白 + 78 纯化 SKU）——产品体量最大",no,"coverage expansion 2026-08-10 — highest product volume"
+immunoprecipitation,Immunoprecipitation Co-IP / 免疫沉淀,"显式产品类目 'IP & Reagent'（17 SKU）；复用 Western blot 抗体角色",no,"coverage expansion 2026-08-10 — reuses WB roles"
+enzyme_inhibitor_assay,Enzyme inhibitor assay / 酶与抑制剂实验,"第二大产品类目：2046 生化抑制剂 + 116 生化实验",no,"coverage expansion 2026-08-10"
+nucleic_acid_extraction,Nucleic acid extraction / 核酸提取,"DNA/RNA 纯化 SKU；PCR 上游",no,"coverage expansion 2026-08-10"
+cloning_protein_expression,Cloning & protein expression / 克隆与蛋白表达,"克隆与蛋白表达 SKU（18）",no,"coverage expansion 2026-08-10"

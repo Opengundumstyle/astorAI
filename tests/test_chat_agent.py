@@ -264,3 +264,9 @@ def test_system_prompt_defines_astor_sku_and_the_null_case():
     either distrust a real SKU or read null as licence to invent one."""
     assert "astor_sku" in agent.SYSTEM
     assert "null" in agent.SYSTEM.split("astor_sku", 1)[1][:400]
+
+
+def test_system_prompt_routes_failures_to_troubleshoot():
+    assert "troubleshoot" in agent.SYSTEM
+    assert "drafted" in agent.SYSTEM
+    assert "what to buy" in agent.SYSTEM

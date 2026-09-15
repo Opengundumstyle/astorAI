@@ -62,11 +62,11 @@ def test_tool_exception_is_caught(monkeypatch):
     result, items = tools.dispatch(_sess(), "search_products", {"query": "x"})
     assert "error" in result and items == []
 
-def test_schemas_cover_all_seven_tools():
+def test_schemas_cover_all_eight_tools():
     names = {t["name"] for t in tools.TOOL_SCHEMAS}
     assert names == {"search_products", "search_protocols", "protocol_products",
                      "product_protocols", "product_detail", "protocols_by_material",
-                     "flag_sourcing_request"}
+                     "flag_sourcing_request", "troubleshoot"}
 
 def test_unknown_tool_name_returns_error():
     result, items = tools.dispatch(_sess(), "nonexistent_tool", {})
@@ -246,3 +246,72 @@ def test_repo_search_defaults_to_sellable_only():
 
     default = inspect.signature(real_repo.list_products).parameters["sellable_only"].default
     assert default is True
+
+
+# ------------------------------------------------------------ troubleshoot #
+from astor.curation import troubleshoot as _ts
+from astor.curation.loader import Category, CurationTables, Role, TroubleshootingEntry
+
+
+def _ts_tables():
+    cats = {"western_blot": Category("western_blot", "Western blot")}
+    roles = {"secondary_antibody": Role("secondary_antibody", "二抗 / secondary antibody", "no", "no", ""),
+             "water": Role("water", "水 / water", "yes", "no", "")}
+    entries = [
+        TroubleshootingEntry("T1", "western_blot", "no bands at all / 没有条带", "secondary mismatch",
+                             "check host", "secondary_antibody", "yes", "western_blot:secondary_antibody",
+                             "drafted", "checklist", "", "", ""),
+        TroubleshootingEntry("T2", "western_blot", "smiling bands", "gel too hot", "run colder",
+                             "water", "no", None, "reviewed", "mary", "Mary", "2026-09-15", ""),
+    ]
+    return CurationTables(cats, roles, [], entries)
+
+
+@pytest.fixture
+def ts_matcher(monkeypatch):
+    monkeypatch.setattr(tools, "_matcher", _ts.Matcher(_ts_tables()))
+    yield
+    monkeypatch.setattr(tools, "_matcher", None)
+
+
+def test_troubleshoot_returns_entries_with_products_and_refs(monkeypatch, ts_matcher):
+    monkeypatch.setattr(repo, "list_products",
+        lambda s, q, category, page, page_size, **kw: (
+            [{"id": "p1", "name": "Goat anti-Rabbit IgG HRP", "brand": "X", "category": "antibodies",
+              "astor_sku": "A1", "mpn": None, "region": None, "offer_count": 1, "best_landed": None}], 1))
+    result, items = tools.dispatch(_sess(), "troubleshoot", {"symptom": "no bands at all", "category": "western_blot"})
+    assert result["match"] == "keyword"
+    e = result["entries"][0]
+    assert e["entry_id"] == "T1" and e["confidence"] == "drafted" and e["fix_role"] == "secondary_antibody"
+    assert e["lab_usually_owns_it"] == "no"
+    # buyer-gated: brand/mpn/region withheld
+    assert e["products"] == [{"id": "p1", "astor_sku": "A1", "name": "Goat anti-Rabbit IgG HRP",
+                              "category": "antibodies", "offer_count": 1, "best_landed": None}]
+    assert items == [tools.ReferencedItem("product", "p1", "Goat anti-Rabbit IgG HRP")]
+
+
+def test_troubleshoot_lab_owned_role_has_no_products(monkeypatch, ts_matcher):
+    def must_not(*a, **k):
+        raise AssertionError("no search")
+    monkeypatch.setattr(repo, "list_products", must_not)
+    result, items = tools.dispatch(_sess(), "troubleshoot", {"symptom": "smiling", "category": "western_blot"})
+    e = result["entries"][0]
+    assert e["entry_id"] == "T2" and e["products"] == [] and e["lab_usually_owns_it"] == "yes"
+    assert items == []
+
+
+def test_troubleshoot_empty_result_shape(ts_matcher):
+    result, items = tools.dispatch(_sess(), "troubleshoot", {"symptom": "zzz qqq"})
+    assert result == {"entries": [], "match": "keyword"} and items == []
+
+
+def test_troubleshoot_requires_symptom(ts_matcher):
+    result, items = tools.dispatch(_sess(), "troubleshoot", {})
+    assert "error" in result and items == []
+
+
+def test_troubleshoot_schema_registered():
+    names = {s["name"] for s in tools.TOOL_SCHEMAS}
+    assert "troubleshoot" in names
+    schema = next(s for s in tools.TOOL_SCHEMAS if s["name"] == "troubleshoot")
+    assert schema["input_schema"]["required"] == ["symptom"]

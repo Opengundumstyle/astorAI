@@ -10,9 +10,13 @@ from astor.api.auth import require_admin_token
 from astor.api.routers import health as health_router
 from astor.api.routers import catalog, chat, dashboard, pricing, protocols, shopify_proxy
 from astor.config import settings
+from astor import curation
 
 
 def create_app() -> FastAPI:
+    # Mary's curation tables are validated here so a typo in a role or category
+    # fails boot with the entry id, instead of reaching a shopper as an empty answer.
+    curation.tables()
     if settings.admin_token_required and not settings.admin_token:
         raise RuntimeError(
             "ADMIN_TOKEN_REQUIRED is set but ADMIN_TOKEN is empty — refusing to start "

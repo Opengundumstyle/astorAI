@@ -1,0 +1,16 @@
+﻿category_id,role,plain_name,required_or_optional,is_control,commonly_omitted,why_required,spec_constraint,depends_on
+western_blot,loading_control,上样对照（anti-GAPDH / anti-β-actin）,required,yes,yes,"证明各泳道上样量一致；没有它条带差异无法解读","管家蛋白，且分子量须与目标不同",target_protein_mw
+western_blot,positive_control,阳性对照（已知表达目标的lysate）,optional,yes,yes,"确认抗体有效；区分'目标不存在'和'实验失败'","已知表达目标蛋白的细胞系/组织",target_protein_identity
+western_blot,secondary_antibody,二抗,required,no,no,"最常见的配错：二抗宿主与一抗不匹配会完全没信号","宿主须与一抗不同，且匹配一抗的isotype",primary_antibody_host_species
+western_blot,blocking_agent,封闭剂,required,no,no,"常见错误：检测磷酸化蛋白时用脱脂奶粉会掩盖信号","检测磷酸化蛋白时必须用BSA，不能用奶粉",is_phospho
+rt_qpcr,no_template_control,无模板对照（NTC，用水代替模板）,required,yes,yes,"检测试剂污染和引物二聚体；有信号说明结果不可信","每次实验、每对引物都要做",
+rt_qpcr,no_rt_control,无逆转录酶对照（-RT / minus-RT）,required,yes,yes,"RT-qPCR特有：不加逆转录酶，检测基因组DNA污染带来的假信号","从同一RNA取样、只是不加逆转录酶",
+rt_qpcr,reference_gene,内参基因（管家基因，如 GAPDH / ACTB / 18S）,required,yes,yes,"用于归一化；没有内参无法比较相对表达量","内参须在你的样本/处理条件下稳定表达，不能随处理而变",experimental_condition
+rt_qpcr,primers,引物 / 探针,required,no,no,"常见错误：引物不跨外显子会同时扩增基因组DNA，导致假阳性","尽量设计跨外显子-外显子连接处的引物",target_gene
+rt_qpcr,detection_chemistry,检测化学（SYBR Green / TaqMan探针）,required,no,no,"常见遗漏：用SYBR Green但不做熔解曲线，无法确认扩增特异性","用SYBR Green必须做熔解曲线；用探针须针对目标专门设计",detection_method
+elisa,standard_curve,标准曲线（一系列已知浓度的标准品）,required,yes,no,"没有标准曲线无法把OD读数换算成浓度","浓度范围须覆盖样本预期区间，一般≥5个点+空白",expected_concentration_range
+elisa,blank_zero_standard,空白 / 零标准（只有稀释液、无待测物）,required,yes,yes,"定义本底信号，扣除后定量才准","须用与标准品相同的稀释液",
+elisa,negative_control,阴性对照（已知不含待测物的样本/基质）,required,yes,yes,"确认信号特异、排除假阳性","尽量用与样本相同的基质",sample_matrix
+elisa,positive_control,阳性对照（已知含待测物、浓度已知）,optional,yes,yes,"确认试剂盒工作正常、批间可比","浓度已知，最好落在标准曲线中段",target_analyte
+elisa,capture_detection_pair,捕获抗体 / 检测抗体配对（夹心ELISA）,required,no,no,"最常见的失败：两抗体不是验证过的配对、或识别同一表位而互相竞争","必须是验证过的matched pair，识别不同表位",assay_format
+elisa,sample_diluent,样本 / 标准品稀释液（基质匹配）,required,no,no,"常见错误：标准品与样本基质不同，基质效应导致定量偏差","标准品须与样本用相同基质/稀释液配制",sample_matrix

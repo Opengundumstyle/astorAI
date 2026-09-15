@@ -1,0 +1,12 @@
+﻿category_id,question,required_before_recommending,what_it_changes,answer_type,allowed_values
+western_blot,"目标蛋白的分子量大约是多少 kDa？",yes,"决定上样对照须选不同分子量的管家蛋白",number,
+western_blot,"你的一抗宿主是什么物种？（如 rabbit / mouse）",yes,"决定二抗宿主（须不同、须匹配）",pick-list,"rabbit;mouse;goat;rat;其他"
+western_blot,"你检测的是磷酸化蛋白吗？",yes,"决定封闭剂：磷酸化用BSA、不用脱脂奶粉",pick-list,"是;否"
+western_blot,"你要检测的目标蛋白是什么？",no,"决定是否加阳性对照及其选择",text,
+rt_qpcr,"你要检测的目标基因是什么？",yes,"决定引物/探针设计",text,
+rt_qpcr,"你的样本类型和处理条件是什么？（如某细胞系 + 某药物处理）",yes,"决定内参基因选择（须在该条件下稳定表达）",text,
+rt_qpcr,"你用 SYBR Green 还是 TaqMan 探针？",yes,"SYBR须做熔解曲线确认特异性；探针需专门设计",pick-list,"SYBR Green;TaqMan探针;不确定"
+elisa,"你要测的目标分析物（蛋白/分子）是什么？",yes,"决定抗体配对/试剂盒选择；决定阳性对照",text,
+elisa,"你的样本是什么基质？（血清/血浆/细胞上清/组织裂解液等）",yes,"决定阴性对照基质、样本稀释液（基质匹配）",text,
+elisa,"你用夹心法、间接法还是直接法？",yes,"夹心法需捕获+检测抗体配对",pick-list,"夹心ELISA;间接ELISA;直接ELISA;不确定"
+elisa,"你预期的浓度大概在什么范围？",no,"决定标准曲线的浓度范围",text,

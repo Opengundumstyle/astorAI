@@ -1,0 +1,44 @@
+case_id,category_id,question,expected_entry_ids,expected_fix_roles,must_match,notes
+TG0001,western_blot,My western blot shows no bands at all. Primary is rabbit and I used an anti-mouse secondary.,T0001,secondary_antibody,anti-rabbit|secondary|二抗,classic host mismatch
+TG0002,western_blot,完全没有条带，ECL 是去年开的,T0002,detection_substrate,ECL|substrate|显影,expired substrate
+TG0003,western_blot,No bands and Ponceau shows nothing on the membrane,T0003,membrane,PVDF|membrane|nitrocellulose|膜,transfer failed
+TG0004,western_blot,我做磷酸化蛋白的 WB 信号很弱，用的是脱脂奶粉封闭,T0005,blocking_agent,BSA|albumin,milk masks phospho
+TG0005,western_blot,High background over the whole blot,T0006,blocking_agent,BSA|milk|block|封闭,blocking
+TG0006,western_blot,I see multiple non-specific bands on my western,T0008,primary_antibody,antibody|抗体,primary titration
+TG0007,western_blot,The band is at the wrong molecular weight compared to what I expected,T0009,protein_ladder,ladder|marker,ladder misread
+TG0008,western_blot,泳道之间条带强弱没法比较，没有做上样对照,T0010,loading_control,GAPDH|actin|tubulin|上样,loading control
+TG0009,western_blot,My loading control band overlaps with my target band,T0011,loading_control,GAPDH|actin|tubulin,different-size control
+TG0010,western_blot,Bands are smiling and distorted,T0012,buffer_running,,lab owns running buffer; no product expected
+TG0011,western_blot,不确定是抗体不行还是样本里没有目标蛋白,T0004,positive_control,lysate|positive|阳性,positive control
+TG0012,rt_qpcr,My NTC wells show amplification,T0101,qpcr_master_mix,master mix|SYBR|qPCR,contamination
+TG0013,rt_qpcr,-RT 对照有信号,T0102,dnase,DNase,genomic DNA
+TG0014,rt_qpcr,No Ct values in any sample after RT-qPCR,T0103,rt_enzyme,reverse transcriptase|RT kit|cDNA|逆转录,RT failed
+TG0015,rt_qpcr,One of my primer pairs never amplifies anything,T0104,primers,primer|引物,primer design
+TG0016,rt_qpcr,所有样本 Ct 都在 36 以后,T0105,rna_extraction_kit,RNA|extraction|提取,inhibitors or low template
+TG0017,rt_qpcr,The melt curve has two peaks,T0106,primers,primer|probe|TaqMan|引物,dimers
+TG0018,rt_qpcr,My GAPDH Ct changes a lot between treated and untreated,T0107,reference_gene,reference|housekeeping|内参|ACTB|18S,unstable reference
+TG0019,rt_qpcr,复孔之间 Ct 差异很大,T0108,pipette_tips,,lab owns tips; no product expected
+TG0020,rt_qpcr,My fold changes make no biological sense,T0109,reference_gene,reference|housekeeping|内参,normalisation
+TG0021,rt_qpcr,基因组 DNA 也能被我的引物扩增,T0110,primers,primer|引物,exon-spanning
+TG0022,rt_qpcr,RNA yield from my tissue samples is very low,T0111,rna_extraction_kit,RNA|extraction|提取,yield
+TG0023,elisa,No signal in any well including the standards,T0201,tmb_substrate,TMB|substrate|底物,substrate dead
+TG0024,elisa,标准品正常但样本完全没有信号,T0202,sample_diluent,diluent|稀释,matrix effect
+TG0025,elisa,High background in every well of my ELISA,T0203,wash_buffer,wash|PBST|洗涤,washing
+TG0026,elisa,The blank wells read high,T0204,capture_detection_pair,antibody|pair|抗体,detection too concentrated
+TG0027,elisa,我的标准曲线 R² 很低，不线性,T0205,standard_curve,standard|标准品,standard curve
+TG0028,elisa,Sample readings are above the highest standard,T0206,sample_diluent,diluent|稀释,dilute
+TG0029,elisa,阴性对照孔有信号,T0208,negative_control,negative|阴性|control,non-specific
+TG0030,elisa,Sandwich ELISA gives no signal even though I know the protein is there,T0209,capture_detection_pair,pair|matched|capture|detection|抗体,matched pair
+TG0031,elisa,Results are different every time I run a new plate,T0210,positive_control,positive|阳性|control,inter-plate
+TG0032,elisa,显色太快整板都饱和了,T0211,stop_solution,stop|终止,saturation
+TG0033,elisa,I have no way to subtract background because I did not run a blank,T0213,blank_zero_standard,,blank is diluent; may be lab-owned
+TG0034,cell_culture_transfection,My transfection efficiency is very low in HEK293,T0301;T0302,transfection_reagent;plasmid_dna,transfection|plasmid|转染|质粒,two plausible causes
+TG0035,cell_culture_transfection,转染以后细胞死了一大半,T0303,transfection_reagent,transfection|转染,toxicity
+TG0036,cell_culture_transfection,Cells transfected fine by GFP but my construct shows no expression,T0304,plasmid_dna,plasmid|质粒,promoter or plasmid
+TG0037,cell_culture_transfection,细胞长得很慢,T0305,culture_medium,medium|serum|FBS|培养基|血清,slow growth
+TG0038,cell_culture_transfection,My adherent cells keep detaching from the plate,T0306,trypsin,trypsin|plate|胰酶|培养板,detaching
+TG0039,cell_culture_transfection,培养基浑浊了，好像有污染,T0307,antibiotic,antibiotic|penicillin|streptomycin|青链霉素,contamination
+TG0040,cell_culture_transfection,Medium is clear but cells look unhealthy and grow slowly,T0308,mycoplasma_test,mycoplasma|支原体,mycoplasma
+TG0041,cell_culture_transfection,细胞形态和以前不一样了,T0309,cell_line,cell|细胞,morphology
+TG0042,cell_culture_transfection,Medium turns yellow within a day,T0310,culture_medium,medium|培养基,overconfluent
+TG0043,cell_culture_transfection,The transfection works in HeLa but not in my primary cells,T0312,transfection_reagent,transfection|electroporation|转染,hard-to-transfect
