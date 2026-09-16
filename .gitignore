@@ -16,3 +16,7 @@ web/.next
 
 # Raw protocols.io payloads — fetched artifacts, not source
 /data/raw/protocols_io/
+
+# Read-only reference repos (e.g. Biomni). Never committed.
+reference/
+Biomni/
